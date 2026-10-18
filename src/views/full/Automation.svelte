@@ -346,7 +346,7 @@
   }
 
   .btn:hover {
-    background: var(--surface);
+    background: var(--surface-raised);
   }
 
   .empty {

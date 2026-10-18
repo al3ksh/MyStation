@@ -248,7 +248,7 @@
   }
 
   .btn:hover:not(:disabled) {
-    background: var(--surface);
+    background: var(--surface-raised);
   }
 
   .btn:disabled {
@@ -259,5 +259,9 @@
     background: var(--accent);
     border-color: transparent;
     color: var(--on-accent);
+  }
+
+  .btn.accent:hover:not(:disabled) {
+    background: var(--accent-hover);
   }
 </style>

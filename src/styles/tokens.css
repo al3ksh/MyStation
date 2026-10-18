@@ -4,6 +4,8 @@
   --layer: rgb(255 255 255 / 0.03);
   --surface: rgb(255 255 255 / 0.06);
   --surface-hover: rgb(255 255 255 / 0.09);
+  /* Hover on a control that already rests on --surface-hover. */
+  --surface-raised: rgb(255 255 255 / 0.12);
   --sunk: rgb(0 0 0 / 0.2);
   --solid: #2b2b2b;
   --border: rgb(255 255 255 / 0.08);
@@ -11,6 +13,7 @@
   --text: #f3f3f3;
   --text-2: rgb(255 255 255 / 0.62);
   --accent: #4cc2ff;
+  --accent-hover: #70cfff;
   --on-accent: #003049;
   --r-ctl: 4px;
   --r-card: 6px;

@@ -546,7 +546,7 @@
   }
 
   .btn:hover:not(:disabled) {
-    background: var(--surface);
+    background: var(--surface-raised);
   }
 
   .btn[aria-pressed='true'] {
