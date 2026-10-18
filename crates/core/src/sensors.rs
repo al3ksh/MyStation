@@ -5,6 +5,7 @@ use serde::Serialize;
 pub use crate::battery::{BatteryRaw, BatterySnapshot, PowerState, battery_from_raw};
 pub use crate::cpu_load::{CpuTimes, load_between};
 pub use crate::dcim::{DcimReadings, DcimRow, FanReading, parse_dcim};
+pub use crate::power::{PowerFlow, power_flow};
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -39,6 +40,8 @@ pub struct Telemetry {
     pub mem: Option<MemSnapshot>,
     pub dimm_c: Option<f32>,
     pub skin_c: Option<f32>,
+    /// `None` without a battery reading.
+    pub power: Option<PowerFlow>,
 }
 
 #[cfg(test)]

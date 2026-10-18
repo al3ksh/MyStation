@@ -10,11 +10,11 @@ use std::time::{Duration, Instant};
 use chrono::Local;
 use mystation_core::history::{HealthEntry, HistorySample};
 use mystation_core::sensors::{
-    BatteryRaw, CpuSnapshot, CpuTimes, Telemetry, battery_from_raw, load_between, parse_dcim,
+    BatteryRaw, CpuSnapshot, CpuTimes, Telemetry, battery_from_raw, load_between, parse_dcim, power_flow,
 };
 use tauri::{AppHandle, Emitter, Manager};
 
-use crate::platform::{self, GpuReader, WmiReaders};
+use crate::platform::{self, CpuPowerReader, GpuReader, WmiReaders};
 use crate::state::{Core, PollMode};
 use crate::sync::LockExt;
 
@@ -35,6 +35,9 @@ struct Poller {
     // WMI connections are !Send, so they are created on this thread.
     wmi: Option<WmiReaders>,
     gpu: GpuReader,
+    cpu_power: Option<CpuPowerReader>,
+    /// Refreshed on the slow tick: adapters get swapped.
+    adapter_w: Option<u32>,
     cpu_prev: CpuTimes,
     last_slow: Option<Instant>,
     bios_read: bool,
@@ -53,6 +56,8 @@ impl Poller {
             app,
             wmi,
             gpu: GpuReader::new(),
+            cpu_power: CpuPowerReader::new(),
+            adapter_w: None,
             cpu_prev: platform::cpu_times(),
             last_slow: None,
             bios_read: false,
@@ -72,6 +77,9 @@ impl Poller {
                         *self.app.state::<Core>().telemetry.lock_ok() = None;
                     } else if mode == PollMode::Idle {
                         self.cpu_prev = platform::cpu_times();
+                        if let Some(r) = &mut self.cpu_power {
+                            r.read();
+                        }
                         std::thread::sleep(LOAD_BASELINE);
                     }
                     mode = next;
@@ -108,15 +116,20 @@ impl Poller {
         self.cpu_prev = now;
         let dcim = self.wmi.as_ref().and_then(WmiReaders::dcim).map(|rows| parse_dcim(&rows)).unwrap_or_default();
         let gpu = self.gpu.read();
+        let battery = raw.map(battery_from_raw);
+        let cpu_w = self.cpu_power.as_mut().and_then(CpuPowerReader::read);
+        let gpu_w = self.gpu.power_w(&gpu);
+        let power = battery.as_ref().map(|b| power_flow(b, cpu_w, gpu_w, self.adapter_w));
         let telemetry = Telemetry {
             ts_ms: Local::now().timestamp_millis(),
-            battery: raw.map(battery_from_raw),
+            battery,
             cpu: CpuSnapshot { load_pct: load, temp_c: dcim.cpu_c },
             gpu,
             fans: dcim.fans,
             mem: platform::mem(),
             dimm_c: dcim.dimm_c,
             skin_c: dcim.skin_c,
+            power,
         };
         let core = self.app.state::<Core>();
         core.history.lock_ok().push(HistorySample::from(&telemetry));
@@ -136,6 +149,7 @@ impl Poller {
             let entry = HealthEntry { date: Local::now().date_naive(), full_mwh, design_mwh, cycles: b.cycles };
             let _ = core.health.lock_ok().record(entry);
         }
+        self.adapter_w = self.wmi.as_ref().and_then(WmiReaders::adapter_w);
         let optimizer_running = platform::optimizer_running();
         core.update(|s| {
             s.battery = battery;

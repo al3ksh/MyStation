@@ -16,6 +16,7 @@ pub mod boot;
 pub mod nvme;
 pub mod gpu;
 pub mod energy;
+pub mod power;
 pub mod sleep;
 pub mod usb;
 pub mod brand;

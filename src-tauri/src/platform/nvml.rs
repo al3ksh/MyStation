@@ -13,6 +13,7 @@ type InitFn = unsafe extern "C" fn() -> i32;
 type HandleFn = unsafe extern "C" fn(u32, *mut Device) -> i32;
 type TempFn = unsafe extern "C" fn(Device, u32, *mut u32) -> i32;
 type UtilFn = unsafe extern "C" fn(Device, *mut Utilization) -> i32;
+type PowerFn = unsafe extern "C" fn(Device, *mut u32) -> i32;
 
 const NVML_SUCCESS: i32 = 0;
 const NVML_TEMPERATURE_GPU: u32 = 0;
@@ -28,6 +29,8 @@ pub struct Nvml {
     shutdown: InitFn,
     temperature: TempFn,
     utilization: UtilFn,
+    /// Missing on drivers and boards that don't report board power.
+    power: Option<PowerFn>,
     device: Device,
     // Keeps the function pointers above valid; dropped last.
     _lib: Library,
@@ -43,6 +46,7 @@ impl Nvml {
             let handle: HandleFn = *lib.get(b"nvmlDeviceGetHandleByIndex_v2\0").ok()?;
             let temperature: TempFn = *lib.get(b"nvmlDeviceGetTemperature\0").ok()?;
             let utilization: UtilFn = *lib.get(b"nvmlDeviceGetUtilizationRates\0").ok()?;
+            let power: Option<PowerFn> = lib.get(b"nvmlDeviceGetPowerUsage\0").ok().map(|f| *f);
             if init() != NVML_SUCCESS {
                 return None;
             }
@@ -51,7 +55,7 @@ impl Nvml {
                 shutdown();
                 return None;
             }
-            Some(Self { shutdown, temperature, utilization, device, _lib: lib })
+            Some(Self { shutdown, temperature, utilization, power, device, _lib: lib })
         }
     }
 
@@ -68,6 +72,14 @@ impl Nvml {
             }
         }
         Some((temp, util.gpu))
+    }
+
+    /// Board power draw in watts.
+    pub fn power_w(&self) -> Option<f32> {
+        let mut mw = 0;
+        // SAFETY: as in `read`; the symbol type matches nvmlDeviceGetPowerUsage.
+        let status = unsafe { (self.power?)(self.device, &mut mw) };
+        (status == NVML_SUCCESS).then(|| mw as f32 / 1000.0)
     }
 }
 
@@ -126,6 +138,16 @@ impl GpuReader {
             }
         }
     }
+
+    /// Power draw for the snapshot `read` just returned: none while asleep, and only an
+    /// open session is asked, so this never wakes the card either.
+    pub fn power_w(&self, snapshot: &GpuSnapshot) -> Option<f32> {
+        match snapshot {
+            GpuSnapshot::Asleep => Some(0.0),
+            GpuSnapshot::Unavailable => None,
+            GpuSnapshot::Active { .. } => self.nvml.as_ref()?.power_w(),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -138,5 +160,13 @@ mod tests {
         reader.release();
         assert!(reader.nvml.is_none());
         assert!(!reader.unavailable);
+    }
+
+    #[test]
+    fn a_sleeping_card_draws_nothing_and_an_unread_one_is_unknown() {
+        let reader = GpuReader::new();
+        assert_eq!(reader.power_w(&GpuSnapshot::Asleep), Some(0.0));
+        assert_eq!(reader.power_w(&GpuSnapshot::Unavailable), None);
+        assert_eq!(reader.power_w(&GpuSnapshot::Active { temp_c: 50, load_pct: 0 }), None);
     }
 }

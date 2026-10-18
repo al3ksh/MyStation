@@ -62,6 +62,11 @@ export interface FanReading {
   rpm: number
 }
 
+/** Battery: the parts add up to the total. Adapter: the adapter's own draw isn't reported. */
+export type PowerFlow =
+  | { source: 'battery'; totalW: number; cpuW: number | null; gpuW: number | null; restW: number | null }
+  | { source: 'adapter'; cpuW: number | null; gpuW: number | null; intoBatteryW: number; adapterW: number | null }
+
 export interface Telemetry {
   tsMs: number
   battery: BatterySnapshot | null
@@ -71,6 +76,7 @@ export interface Telemetry {
   mem: { usedMb: number; totalMb: number } | null
   dimmC: number | null
   skinC: number | null
+  power: PowerFlow | null
 }
 
 export interface HistorySample {

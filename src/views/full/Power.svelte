@@ -28,7 +28,8 @@
   import { onDestroy, onMount } from 'svelte'
   import Icon from '../../components/Icon.svelte'
   import { api } from '../../lib/api'
-  import { num, pct, wh } from '../../lib/format'
+  import { num, pct, watts, wh } from '../../lib/format'
+  import { live } from '../../lib/telemetry.svelte'
   import { errorText, toasts } from '../../lib/toasts.svelte'
 
   /** The card wakes and sleeps as apps come and go. */
@@ -137,6 +138,35 @@
     return r ? `${h} h ${r} min` : `${h} h`
   }
 
+  interface Draw {
+    label: string
+    w: number
+    note?: string
+  }
+
+  const flow = $derived(live.telemetry?.power ?? null)
+
+  const draws = $derived.by((): Draw[] => {
+    if (!flow) return []
+    const asleep = live.telemetry?.gpu.state === 'asleep'
+    const rows: Draw[] = []
+    if (flow.cpuW != null) rows.push({ label: 'CPU', w: flow.cpuW })
+    if (flow.gpuW != null) rows.push({ label: 'NVIDIA GPU', w: flow.gpuW, note: asleep ? 'Asleep' : undefined })
+    if (flow.source === 'battery') {
+      if (flow.restW != null) rows.push({ label: 'Screen, SSD, Wi-Fi and the rest', w: flow.restW })
+    } else {
+      rows.push({ label: 'Into the battery', w: flow.intoBatteryW })
+    }
+    return rows
+  })
+
+  /** Bars are shares of the total on battery, and of the adapter's rating on AC. */
+  const scale = $derived(
+    flow?.source === 'battery'
+      ? Math.max(flow.totalW, ...draws.map((d) => d.w), 1)
+      : Math.max(flow?.adapterW ?? 0, ...draws.map((d) => d.w), 1),
+  )
+
   const date = (iso: string) =>
     new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
 </script>
@@ -166,6 +196,42 @@
       </button>
     {/if}
   </div>
+
+  {#if flow}
+    <section aria-labelledby="power-flow">
+      <div class="head">
+        <h2 id="power-flow">Where the power goes</h2>
+        <span class="state right">
+          {flow.source === 'battery'
+            ? `${watts(flow.totalW)} from the battery`
+            : flow.adapterW
+              ? `${flow.adapterW} W adapter`
+              : 'On AC power'}
+        </span>
+      </div>
+      <div class="card list energy">
+        {#each draws as d (d.label)}
+          <div class="row">
+            <div class="text">
+              <span>{d.label}</span>
+              {#if d.note}<span class="secondary">{d.note}</span>{/if}
+            </div>
+            <span class="bar" aria-hidden="true"><span style:width="{(d.w * 100) / scale}%"></span></span>
+            <span class="amount">{watts(d.w)}</span>
+            {#if flow.source === 'battery'}
+              <span class="share secondary">{pct(flow.totalW ? (d.w * 100) / flow.totalW : 0)}</span>
+            {/if}
+          </div>
+        {/each}
+      </div>
+      {#if flow.source === 'adapter'}
+        <p class="secondary hint">
+          The adapter doesn't report its own draw, so the screen and the rest of the laptop aren't shown. Unplug to
+          see the full split.
+        </p>
+      {/if}
+    </section>
+  {/if}
 
   <section>
     <h2>Graphics</h2>

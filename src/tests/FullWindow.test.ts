@@ -60,6 +60,7 @@ const TELEMETRY: Telemetry = {
   mem: { usedMb: 10240, totalMb: 32768 },
   dimmC: null,
   skinC: null,
+  power: null,
 }
 
 function route(

@@ -1,12 +1,31 @@
 import { fireEvent, render, screen, within } from '@testing-library/svelte'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
-import type { DgpuReport, EnergyReport, GpuApp, GpuChoice, SleepReport } from '../lib/types'
+import type { DgpuReport, EnergyReport, GpuApp, GpuChoice, PowerFlow, SleepReport, Telemetry } from '../lib/types'
 
 const invoke = vi.fn()
 vi.mock('@tauri-apps/api/core', () => ({ invoke: (...a: unknown[]) => invoke(...a) }))
 
 const { default: Power, forget } = await import('../views/full/Power.svelte')
 const { toasts } = await import('../lib/toasts.svelte')
+const { live } = await import('../lib/telemetry.svelte')
+
+function withPower(power: PowerFlow | null, gpu: Telemetry['gpu'] = { state: 'asleep' }) {
+  live.telemetry = {
+    tsMs: 0,
+    battery: null,
+    cpu: { loadPct: 7, tempC: 54 },
+    gpu,
+    fans: [],
+    mem: null,
+    dimmC: null,
+    skinC: null,
+    power,
+  }
+}
+
+function powerRow(label: string) {
+  return within(screen.getByRole('region', { name: 'Where the power goes' })).getByText(label).closest('.row') as HTMLElement
+}
 
 const BRAVE = 'C:\Program Files\Brave\brave.exe'
 const GAME = String.raw`C:\Games\game.exe`
@@ -25,6 +44,7 @@ const ADMIN = 'Battery history needs administrator rights.'
 
 beforeEach(() => {
   forget()
+  live.telemetry = null
   invoke.mockReset()
   toasts.items = []
   setError = null
@@ -71,6 +91,47 @@ beforeEach(() => {
 })
 
 describe('Power', () => {
+  test('on battery the draw is split into CPU, NVIDIA GPU and the rest', async () => {
+    withPower({ source: 'battery', totalW: 18, cpuW: 6.5, gpuW: 0, restW: 11.5 })
+    render(Power)
+    const region = screen.getByRole('region', { name: 'Where the power goes' })
+    expect(within(region).getByText('18.0 W from the battery')).toBeTruthy()
+    expect(within(powerRow('CPU')).getByText('6.5 W')).toBeTruthy()
+    expect(within(powerRow('CPU')).getByText('36%')).toBeTruthy()
+    expect(within(powerRow('NVIDIA GPU')).getByText('Asleep')).toBeTruthy()
+    expect(within(powerRow('NVIDIA GPU')).getByText('0.0 W')).toBeTruthy()
+    expect(within(powerRow('Screen, SSD, Wi-Fi and the rest')).getByText('11.5 W')).toBeTruthy()
+  })
+
+  test('without an NVIDIA reading its row is left out', async () => {
+    withPower({ source: 'battery', totalW: 10, cpuW: 4, gpuW: null, restW: 6 }, { state: 'unavailable' })
+    render(Power)
+    const region = screen.getByRole('region', { name: 'Where the power goes' })
+    expect(within(region).queryByText('NVIDIA GPU')).toBeNull()
+    expect(within(powerRow('Screen, SSD, Wi-Fi and the rest')).getByText('6.0 W')).toBeTruthy()
+  })
+
+  test('on AC the parts are shown with the adapter rating and no total', async () => {
+    withPower(
+      { source: 'adapter', cpuW: 25, gpuW: 12, intoBatteryW: 33, adapterW: 130 },
+      { state: 'active', tempC: 60, loadPct: 40 },
+    )
+    render(Power)
+    const region = screen.getByRole('region', { name: 'Where the power goes' })
+    expect(within(region).getByText('130 W adapter')).toBeTruthy()
+    expect(within(powerRow('CPU')).getByText('25.0 W')).toBeTruthy()
+    expect(within(powerRow('NVIDIA GPU')).getByText('12.0 W')).toBeTruthy()
+    expect(within(powerRow('Into the battery')).getByText('33.0 W')).toBeTruthy()
+    expect(within(region).queryByText(/from the battery/)).toBeNull()
+    expect(within(region).getByText(/adapter doesn't report/)).toBeTruthy()
+  })
+
+  test('without a battery reading the section is left out', async () => {
+    withPower(null)
+    render(Power)
+    expect(screen.queryByRole('region', { name: 'Where the power goes' })).toBeNull()
+  })
+
   test('names the apps keeping the discrete GPU awake', async () => {
     render(Power)
     expect(await screen.findByText('NVIDIA T1200 Laptop GPU')).toBeTruthy()

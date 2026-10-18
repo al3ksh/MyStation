@@ -155,6 +155,7 @@ mod tests {
             mem: None,
             dimm_c: None,
             skin_c: None,
+            power: None,
         };
         assert_eq!(
             HistorySample::from(&t),
