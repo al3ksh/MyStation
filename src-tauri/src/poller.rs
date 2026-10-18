@@ -10,7 +10,8 @@ use std::time::{Duration, Instant};
 use chrono::Local;
 use mystation_core::history::{HealthEntry, HistorySample};
 use mystation_core::sensors::{
-    BatteryRaw, CpuSnapshot, CpuTimes, Telemetry, battery_from_raw, load_between, parse_dcim, power_flow,
+    BatteryRaw, CpuSnapshot, CpuTimes, PowerWindow, Telemetry, battery_from_raw, load_between, parse_dcim,
+    power_flow,
 };
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -36,6 +37,7 @@ struct Poller {
     wmi: Option<WmiReaders>,
     gpu: GpuReader,
     cpu_power: Option<CpuPowerReader>,
+    power_window: PowerWindow,
     /// Refreshed on the slow tick: adapters get swapped.
     adapter_w: Option<u32>,
     cpu_prev: CpuTimes,
@@ -57,6 +59,7 @@ impl Poller {
             wmi,
             gpu: GpuReader::new(),
             cpu_power: CpuPowerReader::new(),
+            power_window: PowerWindow::default(),
             adapter_w: None,
             cpu_prev: platform::cpu_times(),
             last_slow: None,
@@ -74,6 +77,7 @@ impl Poller {
                 Ok(next) => {
                     if next == PollMode::Idle {
                         self.gpu.release();
+                        self.power_window = PowerWindow::default();
                         *self.app.state::<Core>().telemetry.lock_ok() = None;
                     } else if mode == PollMode::Idle {
                         self.cpu_prev = platform::cpu_times();
@@ -119,7 +123,10 @@ impl Poller {
         let battery = raw.map(battery_from_raw);
         let cpu_w = self.cpu_power.as_mut().and_then(CpuPowerReader::read);
         let gpu_w = self.gpu.power_w(&gpu);
-        let power = battery.as_ref().map(|b| power_flow(b, cpu_w, gpu_w, self.adapter_w));
+        let power = battery.as_ref().map(|b| {
+            let (cpu_w, gpu_w) = self.power_window.align(b, cpu_w, gpu_w);
+            power_flow(b, cpu_w, gpu_w, self.adapter_w)
+        });
         let telemetry = Telemetry {
             ts_ms: Local::now().timestamp_millis(),
             battery,

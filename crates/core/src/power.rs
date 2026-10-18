@@ -35,6 +35,58 @@ fn round1(x: f32) -> f32 {
     (x * 10.0).round() / 10.0
 }
 
+/// Windows refreshes the battery rate every few seconds (sometimes tens of seconds), while CPU
+/// and GPU are read each second. On battery, the parts are averaged over the same stretch the
+/// battery reading covers, so they add up to it; the split changes when the battery reading does.
+#[derive(Debug, Default)]
+pub struct PowerWindow {
+    battery_w: Option<f32>,
+    cpu: Mean,
+    gpu: Mean,
+    shown: (Option<f32>, Option<f32>),
+}
+
+#[derive(Debug, Default)]
+struct Mean {
+    sum: f32,
+    n: u32,
+}
+
+impl Mean {
+    fn add(&mut self, v: Option<f32>) {
+        if let Some(v) = v {
+            self.sum += v;
+            self.n += 1;
+        }
+    }
+
+    fn take(&mut self) -> Option<f32> {
+        let mean = (self.n > 0).then(|| round1(self.sum / self.n as f32));
+        *self = Self::default();
+        mean
+    }
+}
+
+impl PowerWindow {
+    /// The CPU and GPU watts to show next to `battery`.
+    pub fn align(&mut self, battery: &BatterySnapshot, cpu_w: Option<f32>, gpu_w: Option<f32>) -> (Option<f32>, Option<f32>) {
+        if battery.state != PowerState::Discharging {
+            *self = Self::default();
+            return (cpu_w, gpu_w);
+        }
+        self.cpu.add(cpu_w);
+        self.gpu.add(gpu_w);
+        if self.battery_w != Some(battery.power_w) {
+            let first = self.battery_w.is_none();
+            self.battery_w = Some(battery.power_w);
+            let means = (self.cpu.take(), self.gpu.take());
+            // The first reading on battery covers time before this window began.
+            self.shown = if first { (cpu_w, gpu_w) } else { means };
+        }
+        self.shown
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -97,6 +149,31 @@ mod tests {
             flow,
             PowerFlow::Adapter { cpu_w: Some(5.0), gpu_w: Some(0.0), into_battery_w: 0.0, adapter_w: None }
         );
+    }
+
+    #[test]
+    fn on_battery_the_parts_follow_the_battery_reading() {
+        let mut w = PowerWindow::default();
+        let b20 = battery(PowerState::Discharging, -20.0);
+        assert_eq!(w.align(&b20, Some(6.0), Some(0.0)), (Some(6.0), Some(0.0)));
+        // The battery reading hasn't changed: the split holds.
+        assert_eq!(w.align(&b20, Some(10.0), Some(2.0)), (Some(6.0), Some(0.0)));
+        assert_eq!(w.align(&b20, Some(14.0), Some(2.0)), (Some(6.0), Some(0.0)));
+        // A new reading: the parts are the means since the last one.
+        let b24 = battery(PowerState::Discharging, -24.0);
+        assert_eq!(w.align(&b24, Some(12.0), Some(2.0)), (Some(12.0), Some(2.0)));
+        assert_eq!(w.align(&b24, Some(4.0), None), (Some(12.0), Some(2.0)));
+    }
+
+    #[test]
+    fn on_ac_the_parts_are_live() {
+        let mut w = PowerWindow::default();
+        w.align(&battery(PowerState::Discharging, -20.0), Some(6.0), None);
+        let ac = battery(PowerState::Charging, 33.0);
+        assert_eq!(w.align(&ac, Some(9.0), Some(1.0)), (Some(9.0), Some(1.0)));
+        assert_eq!(w.align(&ac, Some(11.0), Some(1.0)), (Some(11.0), Some(1.0)));
+        // Unplugged again: starts over from a live reading.
+        assert_eq!(w.align(&battery(PowerState::Discharging, -20.0), Some(7.0), None), (Some(7.0), None));
     }
 
     #[test]

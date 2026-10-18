@@ -5,7 +5,7 @@ use serde::Serialize;
 pub use crate::battery::{BatteryRaw, BatterySnapshot, PowerState, battery_from_raw};
 pub use crate::cpu_load::{CpuTimes, load_between};
 pub use crate::dcim::{DcimReadings, DcimRow, FanReading, parse_dcim};
-pub use crate::power::{PowerFlow, power_flow};
+pub use crate::power::{PowerFlow, PowerWindow, power_flow};
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
