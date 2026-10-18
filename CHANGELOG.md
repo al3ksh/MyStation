@@ -4,6 +4,13 @@ Each release's section becomes its GitHub Release notes and the notes the
 in-app updater shows. `npm run release` refuses to publish a version that has
 no section here.
 
+## 0.5.2 — 2026-10-18
+
+- The Power page shows where the power goes. On battery: the CPU, the NVIDIA
+  GPU and the rest of the laptop (screen, SSD, Wi-Fi), adding up to the total
+  drain. On AC: the CPU, the GPU, the power going into the battery and the
+  adapter's rating.
+
 ## 0.5.1 — 2026-10-16
 
 - The touchpad no longer lags every 30 seconds. The app used to re-read the
