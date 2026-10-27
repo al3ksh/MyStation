@@ -4,7 +4,7 @@ Each release's section becomes its GitHub Release notes and the notes the
 in-app updater shows. `npm run release` refuses to publish a version that has
 no section here.
 
-## Unreleased
+## 0.6.0 — 2026-10-27
 
 - A Spec page lists what the laptop has and supports: the processor, memory
   slots and modules, graphics and storage with their PCIe links, the screen,
