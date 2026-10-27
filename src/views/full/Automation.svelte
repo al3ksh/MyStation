@@ -94,6 +94,7 @@
           trigger: defaultTrigger('wifi', options.ssid),
           actions: { thermal: null, battery: null, powerMode: null },
           notify: false,
+          restore: false,
         }
     index = r ? i : null
     named = !!r
@@ -125,6 +126,7 @@
     if (!draft) return
     const r = $state.snapshot(draft) as Routine
     r.name = r.name.trim()
+    if (r.trigger.kind === 'time') r.restore = false
     edit((list) => {
       if (index === null) list.push(r)
       else list[index] = r
@@ -319,6 +321,16 @@
             onchange={() => draft && (draft.notify = !draft.notify)}
           />
         </div>
+        {#if t.kind !== 'time'}
+          <div class="sub">
+            <span>Restore when it ends</span>
+            <Switch
+              checked={draft.restore}
+              label="Restore when it ends"
+              onchange={() => draft && (draft.restore = !draft.restore)}
+            />
+          </div>
+        {/if}
         {#if doesNothing}<p class="hint">Pick something to change, or turn on the notification</p>{/if}
       {:else}
         <label class="sub">
@@ -326,7 +338,7 @@
           <input aria-label="Name" class="name" bind:value={draft.name} oninput={() => (named = true)} />
         </label>
         <p class="secondary summary">
-          {describeTrigger(t)} → {describeActions(draft.actions, draft.notify)}
+          {describeTrigger(t)} → {describeActions(draft.actions, draft.notify, draft.restore && t.kind !== 'time')}
         </p>
       {/if}
     </div>
@@ -366,7 +378,7 @@
         <Icon name={triggerIcon(r.trigger.kind)} size={20} />
         <div class="text">
           <span>{r.name}</span>
-          <span class="secondary">{describeTrigger(r.trigger)} → {describeActions(r.actions, r.notify)}</span>
+          <span class="secondary">{describeTrigger(r.trigger)} → {describeActions(r.actions, r.notify, r.restore)}</span>
         </div>
         <div class="tools">
           <button

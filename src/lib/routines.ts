@@ -49,11 +49,12 @@ export function describeTrigger(t: Trigger): string {
   }
 }
 
-export function describeActions(a: Actions, notify: boolean): string {
+export function describeActions(a: Actions, notify: boolean, restore = false): string {
   const parts: string[] = []
   if (a.thermal) parts.push(THERMAL_LABEL[a.thermal])
   if (a.battery) parts.push(`${PROFILE_LABEL[a.battery]} profile`)
   if (a.powerMode) parts.push(`Windows: ${POWER_MODE_LABEL[a.powerMode]}`)
+  if (restore) parts.push('Restores')
   if (notify) parts.push('Notifies')
   return parts.join(' · ')
 }

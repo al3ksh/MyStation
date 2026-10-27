@@ -137,6 +137,7 @@ mod tests {
             trigger: crate::automation::Trigger::Power { plugged: false },
             actions: crate::automation::Actions::default(),
             notify: true,
+            restore: true,
         }];
         cfg.match_power_mode = true;
         save(&path, &cfg).unwrap();

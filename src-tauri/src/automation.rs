@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use mystation_core::automation::{Change, Inputs, Routine, evaluate, save_state};
+use mystation_core::automation::{Actions, Change, Inputs, Routine, evaluate, save_state};
 use mystation_core::dell::ThermalMode;
 use mystation_core::power_mode::PowerMode;
 use mystation_core::profile::{ActiveProfile, BatteryProfile};
@@ -28,8 +28,18 @@ pub fn persist(state: &mystation_core::automation::AutomationState) {
 
 /// One engine step. Writes run on a helper thread: cctk takes seconds. True when a routine
 /// sets the Windows power mode itself.
-pub fn tick(app: &AppHandle, inputs: Inputs) -> bool {
+pub fn tick(app: &AppHandle, mut inputs: Inputs) -> bool {
     let core = app.state::<Core>();
+    let now = core.state();
+    // What restoring routines record and compare against; a custom profile is no known one.
+    inputs.current = Actions {
+        thermal: now.thermal,
+        battery: match now.active_profile {
+            Some(ActiveProfile::Known { profile }) => Some(profile),
+            _ => None,
+        },
+        power_mode: now.power_mode,
+    };
     let routines = core.config.lock_ok().routines.clone();
     let runs = {
         let mut state = core.automation.lock_ok();
@@ -70,8 +80,16 @@ pub fn tick(app: &AppHandle, inputs: Inputs) -> bool {
             if let Some(r) = routine(&routines, &run.id)
                 && r.notify
             {
-                let what = if names.is_empty() { String::new() } else { format!(" Switched to {}.", names.join(", ")) };
-                show(&app, &r.name, &format!("{}.{what}", r.trigger.describe()));
+                if run.restored {
+                    // Nothing put back, nothing to say.
+                    if !names.is_empty() {
+                        show(&app, &r.name, &format!("{}. Restored {}.", r.trigger.describe_end(), names.join(", ")));
+                    }
+                } else {
+                    let what =
+                        if names.is_empty() { String::new() } else { format!(" Switched to {}.", names.join(", ")) };
+                    show(&app, &r.name, &format!("{}.{what}", r.trigger.describe()));
+                }
             }
         }
     });

@@ -17,6 +17,7 @@ function routine(over: Partial<Routine> = {}): Routine {
     trigger: { kind: 'wifi', ssid: 'Work', connected: true },
     actions: { thermal: 'UltraPerformance', battery: null, powerMode: null },
     notify: false,
+    restore: false,
     ...over,
   }
 }
@@ -88,6 +89,30 @@ describe('Routines page', () => {
       ]),
     )
     expect(await screen.findByText('Connected to TOTO4 → Quiet · Desk profile')).toBeTruthy()
+  })
+
+  test('a routine can restore what it changed when its trigger ends', async () => {
+    stored = [routine()]
+    render(Automation)
+    await fireEvent.click(await screen.findByRole('button', { name: 'Edit Office' }))
+    await fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    await fireEvent.click(screen.getByRole('switch', { name: 'Restore when it ends' }))
+    await fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    expect(screen.getByText('Connected to Work → Ultra Performance · Restores')).toBeTruthy()
+    await fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(saved()[0].restore).toBe(true))
+  })
+
+  test('a time trigger has no end to restore at', async () => {
+    stored = [routine({ restore: true })]
+    render(Automation)
+    await fireEvent.click(await screen.findByRole('button', { name: 'Edit Office' }))
+    await fireEvent.change(screen.getByLabelText('Trigger'), { target: { value: 'time' } })
+    await fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    expect(screen.queryByRole('switch', { name: 'Restore when it ends' })).toBeNull()
+    await fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    await fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(saved()[0].restore).toBe(false))
   })
 
   test('a time trigger needs at least one day', async () => {

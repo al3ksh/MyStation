@@ -147,6 +147,8 @@ export interface Routine {
   trigger: Trigger
   actions: Actions
   notify: boolean
+  /** Put back what it changed when its trigger ends; never for a time trigger. */
+  restore: boolean
 }
 
 export interface RoutineOptions {

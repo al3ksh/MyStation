@@ -1,7 +1,8 @@
 //! Routines: a trigger and what to change when it fires, stored in config.json, and a pure engine
 //! the poller runs on every tick. Routines react only to events (plugging in, joining a Wi-Fi
 //! network, a time passing), so a manual change holds until the next event. When several
-//! routines fire at once, the one higher in the list wins each setting.
+//! routines fire at once, the one higher in the list wins each setting. A routine can restore what
+//! it changed when its trigger ends (leaving the network, unplugging the display).
 
 use std::collections::HashSet;
 use std::ops::RangeInclusive;
@@ -50,6 +51,33 @@ impl Trigger {
             Trigger::LongAc { days } => format!("Plugged in for {days} days"),
         }
     }
+
+    /// The event that ends this one, for triggers that are a pair.
+    fn opposite(&self) -> Option<Trigger> {
+        match self {
+            Trigger::Power { plugged } => Some(Trigger::Power { plugged: !plugged }),
+            Trigger::Wifi { ssid, connected } => Some(Trigger::Wifi { ssid: ssid.clone(), connected: !connected }),
+            Trigger::Display { connected } => Some(Trigger::Display { connected: !connected }),
+            Trigger::Bluetooth { device, connected } => {
+                Some(Trigger::Bluetooth { device: device.clone(), connected: !connected })
+            }
+            _ => None,
+        }
+    }
+
+    /// A time is a moment: nothing ends it, so there is nothing to restore at.
+    pub fn ends(&self) -> bool {
+        !matches!(self, Trigger::Time { .. })
+    }
+
+    /// What ended it, for the notification of a restore.
+    pub fn describe_end(&self) -> String {
+        match self {
+            Trigger::BatteryBelow { percent } => format!("Battery back to {percent}%"),
+            Trigger::LongAc { .. } => "On battery".into(),
+            t => t.opposite().unwrap_or_else(|| t.clone()).describe(),
+        }
+    }
 }
 
 /// `None` leaves the setting alone.
@@ -65,7 +93,42 @@ impl Actions {
     fn is_empty(&self) -> bool {
         self.thermal.is_none() && self.battery.is_none() && self.power_mode.is_none()
     }
+
+    fn get(&self, slot: usize) -> Option<Change> {
+        match slot {
+            0 => self.thermal.map(Change::Thermal),
+            1 => self.battery.map(Change::Battery),
+            _ => self.power_mode.map(Change::PowerMode),
+        }
+    }
+
+    fn put(&mut self, change: Change) {
+        match change {
+            Change::Thermal(m) => self.thermal = Some(m),
+            Change::Battery(p) => self.battery = Some(p),
+            Change::PowerMode(m) => self.power_mode = Some(m),
+        }
+    }
+
+    fn clear(&mut self, slot: usize) {
+        match slot {
+            0 => self.thermal = None,
+            1 => self.battery = None,
+            _ => self.power_mode = None,
+        }
+    }
+
+    /// Each setting from `self`, else from `other`.
+    fn or(&self, other: &Actions) -> Actions {
+        Actions {
+            thermal: self.thermal.or(other.thermal),
+            battery: self.battery.or(other.battery),
+            power_mode: self.power_mode.or(other.power_mode),
+        }
+    }
 }
+
+const SLOTS: usize = 3;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -78,6 +141,9 @@ pub struct Routine {
     pub actions: Actions,
     /// A Windows notification when it runs.
     pub notify: bool,
+    /// Put back what it changed when its trigger ends.
+    #[serde(default)]
+    pub restore: bool,
 }
 
 pub const LONG_AC_DAYS: RangeInclusive<u32> = 1..=60;
@@ -212,6 +278,7 @@ pub fn migrate(old: &Automation) -> Vec<Routine> {
         trigger,
         actions,
         notify: old.notify,
+        restore: false,
     };
     let mut out = Vec::new();
     for (plugged, mode, id, name) in
@@ -254,6 +321,17 @@ pub struct AutomationState {
     pub displays: Option<u32>,
     pub bluetooth: Option<Vec<String>>,
     pub battery_pct: Option<u8>,
+    /// Restoring routines that ran and have not ended yet, oldest first.
+    pub active: Vec<Active>,
+}
+
+/// What a restoring routine changed (`set`) and what it found there (`before`), per setting.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Active {
+    pub id: String,
+    pub before: Actions,
+    pub set: Actions,
 }
 
 impl AutomationState {
@@ -285,11 +363,13 @@ pub struct Inputs {
     pub displays: Option<u32>,
     /// Names of the connected Bluetooth devices.
     pub bluetooth: Option<Vec<String>>,
+    /// The settings as they are; `None` where unknown, which is neither recorded nor restored.
+    pub current: Actions,
 }
 
 impl Inputs {
     pub fn at(now: NaiveDateTime, on_ac: bool) -> Self {
-        Self { now, on_ac, battery_pct: None, wifi: None, displays: None, bluetooth: None }
+        Self { now, on_ac, battery_pct: None, wifi: None, displays: None, bluetooth: None, current: Actions::default() }
     }
 }
 
@@ -300,11 +380,67 @@ pub enum Change {
     PowerMode(PowerMode),
 }
 
-/// A routine that fired and the changes it won.
+impl Change {
+    fn slot(self) -> usize {
+        match self {
+            Change::Thermal(_) => 0,
+            Change::Battery(_) => 1,
+            Change::PowerMode(_) => 2,
+        }
+    }
+}
+
+/// A routine that fired and the changes it won, or one that ended and what it put back.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Run {
     pub id: String,
     pub changes: Vec<Change>,
+    pub restored: bool,
+}
+
+/// Drops entry `i`. A later entry that changed the same setting inherits what this one found, so
+/// overlapping routines unwind to the state before the first. Otherwise, with `current` given, the
+/// setting comes back unless it was changed since.
+fn release(active: &mut Vec<Active>, i: usize, current: Option<&Actions>) -> Vec<Change> {
+    let gone = active.remove(i);
+    let mut out = Vec::new();
+    for slot in 0..SLOTS {
+        let (Some(set), Some(before)) = (gone.set.get(slot), gone.before.get(slot)) else { continue };
+        if let Some(later) = active[i..].iter_mut().find(|a| a.set.get(slot).is_some()) {
+            later.before.put(before);
+        } else if current.is_some_and(|c| c.get(slot) == Some(set)) {
+            out.push(before);
+        }
+    }
+    out
+}
+
+/// Records what a restoring routine changed against `now`. Firing again keeps what it first found.
+fn remember(active: &mut Vec<Active>, id: &str, changes: &[Change], now: &Actions) {
+    let i = match active.iter().position(|a| a.id == id) {
+        Some(i) => i,
+        None => {
+            active.push(Active { id: id.into(), ..Active::default() });
+            active.len() - 1
+        }
+    };
+    let a = &mut active[i];
+    for &c in changes {
+        let slot = c.slot();
+        match a.before.get(slot).or(now.get(slot)) {
+            Some(before) if before != c => {
+                a.before.put(before);
+                a.set.put(c);
+            }
+            _ => {
+                a.before.clear(slot);
+                a.set.clear(slot);
+            }
+        }
+    }
+    if a.set.is_empty() {
+        active.remove(i);
+    }
 }
 
 /// The latest moment a time trigger passed at or before `now`, looking back a week.
@@ -326,26 +462,37 @@ fn time_moment(r: &Routine, now: NaiveDateTime) -> Option<NaiveDateTime> {
 pub fn evaluate(state: &mut AutomationState, input: &Inputs, routines: &[Routine]) -> Vec<Run> {
     let now = input.now;
     let mut fired = vec![false; routines.len()];
-    let fire = |fired: &mut Vec<bool>, pred: &dyn Fn(&Trigger) -> bool| {
+    let mut ended = vec![false; routines.len()];
+    let fire = |fired: &mut Vec<bool>, ended: &mut Vec<bool>, pred: &dyn Fn(&Trigger) -> bool| {
         for (i, r) in routines.iter().enumerate() {
             if r.enabled && pred(&r.trigger) {
                 fired[i] = true;
             }
+            if r.trigger.opposite().is_some_and(|t| pred(&t)) {
+                ended[i] = true;
+            }
         }
     };
-    let mut restore = false;
+    let mut back_to_schedule = false;
 
     if state.on_ac != Some(input.on_ac) {
         // The first reading ever has nothing to compare with: not an event.
         if state.on_ac.is_some() {
-            fire(&mut fired, &|t| *t == Trigger::Power { plugged: input.on_ac });
+            fire(&mut fired, &mut ended, &|t| *t == Trigger::Power { plugged: input.on_ac });
         }
         state.on_ac = Some(input.on_ac);
         if input.on_ac {
             state.ac_since = Some(now);
         } else {
-            // Leaving AC ends the long-AC stretch: back to whatever the time routines say now.
-            restore = !state.long_ac_done.is_empty();
+            // Leaving AC ends the long-AC stretch. A routine that doesn't restore its own leaves
+            // the profile to whatever the time routines say now.
+            back_to_schedule =
+                state.long_ac_done.iter().any(|id| routines.iter().any(|r| r.id == *id && !r.restore));
+            for (i, r) in routines.iter().enumerate() {
+                if matches!(r.trigger, Trigger::LongAc { .. }) {
+                    ended[i] = true;
+                }
+            }
             state.ac_since = None;
         }
         state.long_ac_done.clear();
@@ -387,7 +534,7 @@ pub fn evaluate(state: &mut AutomationState, input: &Inputs, routines: &[Routine
     if let Some(ssid) = &input.wifi {
         if state.wifi_seen && state.ssid != *ssid {
             let before = state.ssid.clone();
-            fire(&mut fired, &|t| match t {
+            fire(&mut fired, &mut ended, &|t| match t {
                 Trigger::Wifi { ssid: s, connected: true } => ssid.as_ref() == Some(s) && before.as_ref() != Some(s),
                 Trigger::Wifi { ssid: s, connected: false } => before.as_ref() == Some(s) && ssid.as_ref() != Some(s),
                 _ => false,
@@ -401,14 +548,14 @@ pub fn evaluate(state: &mut AutomationState, input: &Inputs, routines: &[Routine
         if let Some(before) = state.displays
             && (before == 0) != (n == 0)
         {
-            fire(&mut fired, &|t| *t == Trigger::Display { connected: n > 0 });
+            fire(&mut fired, &mut ended, &|t| *t == Trigger::Display { connected: n > 0 });
         }
         state.displays = Some(n);
     }
 
     if let Some(names) = &input.bluetooth {
         if let Some(before) = &state.bluetooth {
-            fire(&mut fired, &|t| match t {
+            fire(&mut fired, &mut ended, &|t| match t {
                 Trigger::Bluetooth { device, connected: true } => names.contains(device) && !before.contains(device),
                 Trigger::Bluetooth { device, connected: false } => before.contains(device) && !names.contains(device),
                 _ => false,
@@ -421,38 +568,74 @@ pub fn evaluate(state: &mut AutomationState, input: &Inputs, routines: &[Routine
         // Whole percents: the file changes once per percent, not on every reading.
         let pct = pct.clamp(0.0, 100.0) as u8;
         if let Some(before) = state.battery_pct {
-            fire(&mut fired, &|t| matches!(t, Trigger::BatteryBelow { percent } if before >= *percent && pct < *percent));
+            fire(&mut fired, &mut ended, &|t| matches!(t, Trigger::BatteryBelow { percent } if before >= *percent && pct < *percent));
+            for (i, r) in routines.iter().enumerate() {
+                if let Trigger::BatteryBelow { percent } = r.trigger
+                    && before < percent
+                    && pct >= percent
+                {
+                    ended[i] = true;
+                }
+            }
         }
         state.battery_pct = Some(pct);
     }
 
-    // While a long-AC routine holds the battery profile, time routines leave it alone.
-    let hold = input.on_ac && !state.long_ac_done.is_empty();
-    let (mut thermal, mut battery, mut power_mode) = (false, false, false);
-    let mut runs = Vec::new();
-    for (r, _) in routines.iter().zip(&fired).filter(|(_, f)| **f) {
-        let mut changes = Vec::new();
-        if let Some(mode) = r.actions.thermal
-            && !std::mem::replace(&mut thermal, true)
-        {
-            changes.push(Change::Thermal(mode));
+    // Forget what to restore for routines switched off, deleted or no longer restoring.
+    let mut k = 0;
+    while k < state.active.len() {
+        let id = &state.active[k].id;
+        if routines.iter().any(|r| r.id == *id && r.enabled && r.restore && r.trigger.ends()) {
+            k += 1;
+        } else {
+            release(&mut state.active, k, None);
         }
-        let held = hold && matches!(r.trigger, Trigger::Time { .. });
-        if let Some(profile) = r.actions.battery
-            && !held
-            && !std::mem::replace(&mut battery, true)
-        {
-            changes.push(Change::Battery(profile));
-        }
-        if let Some(mode) = r.actions.power_mode
-            && !std::mem::replace(&mut power_mode, true)
-        {
-            changes.push(Change::PowerMode(mode));
-        }
-        runs.push(Run { id: r.id.clone(), changes });
     }
 
-    if restore && !battery {
+    // Routines that ended, newest first; `pending` is what the settings are about to be.
+    let mut restores: Vec<(String, Vec<Change>)> = Vec::new();
+    let mut pending = Actions::default();
+    for k in (0..state.active.len()).rev() {
+        let id = state.active[k].id.clone();
+        if !routines.iter().zip(&ended).any(|(r, e)| *e && r.id == id) {
+            continue;
+        }
+        let changes = release(&mut state.active, k, Some(&pending.or(&input.current)));
+        for &c in &changes {
+            for (_, earlier) in &mut restores {
+                earlier.retain(|e| e.slot() != c.slot());
+            }
+            pending.put(c);
+        }
+        restores.push((id, changes));
+    }
+
+    // While a long-AC routine holds the battery profile, time routines leave it alone.
+    let hold = input.on_ac && !state.long_ac_done.is_empty();
+    let mut claimed = [false; SLOTS];
+    let mut runs = Vec::new();
+    for (r, _) in routines.iter().zip(&fired).filter(|(_, f)| **f) {
+        let held = hold && matches!(r.trigger, Trigger::Time { .. });
+        let changes: Vec<Change> = (0..SLOTS)
+            .filter_map(|slot| r.actions.get(slot))
+            .filter(|c| !(held && c.slot() == 1) && !std::mem::replace(&mut claimed[c.slot()], true))
+            .collect();
+        if r.restore && r.trigger.ends() {
+            remember(&mut state.active, &r.id, &changes, &pending.or(&input.current));
+        }
+        runs.push(Run { id: r.id.clone(), changes, restored: false });
+    }
+
+    // A routine that fired wins over one putting a setting back.
+    for (id, changes) in restores.into_iter().rev() {
+        let changes: Vec<Change> =
+            changes.into_iter().filter(|c| !std::mem::replace(&mut claimed[c.slot()], true)).collect();
+        if !changes.is_empty() {
+            runs.push(Run { id, changes, restored: true });
+        }
+    }
+
+    if back_to_schedule && !claimed[1] {
         let latest = routines
             .iter()
             .filter(|r| r.actions.battery.is_some())
@@ -461,7 +644,7 @@ pub fn evaluate(state: &mut AutomationState, input: &Inputs, routines: &[Routine
         if let Some((_, r)) = latest
             && let Some(profile) = r.actions.battery
         {
-            runs.push(Run { id: r.id.clone(), changes: vec![Change::Battery(profile)] });
+            runs.push(Run { id: r.id.clone(), changes: vec![Change::Battery(profile)], restored: false });
         }
     }
     runs
@@ -478,7 +661,11 @@ mod tests {
     }
 
     fn routine(id: &str, trigger: Trigger, actions: Actions) -> Routine {
-        Routine { id: id.into(), name: id.into(), enabled: true, trigger, actions, notify: true }
+        Routine { id: id.into(), name: id.into(), enabled: true, trigger, actions, notify: true, restore: false }
+    }
+
+    fn restoring(id: &str, trigger: Trigger, actions: Actions) -> Routine {
+        Routine { restore: true, ..routine(id, trigger, actions) }
     }
 
     fn thermal(mode: ThermalMode) -> Actions {
@@ -511,7 +698,16 @@ mod tests {
     }
 
     fn run(id: &str, changes: Vec<Change>) -> Run {
-        Run { id: id.into(), changes }
+        Run { id: id.into(), changes, restored: false }
+    }
+
+    fn restored(id: &str, changes: Vec<Change>) -> Run {
+        Run { id: id.into(), changes, restored: true }
+    }
+
+    /// The settings as they are now.
+    fn now_at(mode: ThermalMode) -> Actions {
+        Actions { thermal: Some(mode), battery: Some(BatteryProfile::Home), power_mode: Some(PowerMode::Balanced) }
     }
 
     fn step(s: &mut AutomationState, on_ac: bool, now: NaiveDateTime, rules: &[Routine]) -> Vec<Run> {
@@ -763,6 +959,197 @@ mod tests {
         assert_eq!(step(&mut s, false, at(5, 10, 0), &[r]), vec![run("tell", vec![])]);
     }
 
+    fn wifi_now(now: NaiveDateTime, ssid: Option<&str>, current: ThermalMode) -> Inputs {
+        Inputs { current: now_at(current), ..on_wifi(now, ssid) }
+    }
+
+    #[test]
+    fn a_restoring_routine_puts_back_what_it_changed_when_it_ends() {
+        let rules = vec![restoring("join", wifi("Office", true), thermal(ThermalMode::UltraPerformance))];
+        let mut s = seen(true, at(5, 9, 0));
+        evaluate(&mut s, &wifi_now(at(5, 9, 0), None, ThermalMode::Optimized), &rules);
+        assert_eq!(
+            evaluate(&mut s, &wifi_now(at(5, 9, 1), Some("Office"), ThermalMode::Optimized), &rules),
+            vec![run("join", vec![Change::Thermal(ThermalMode::UltraPerformance)])]
+        );
+        assert_eq!(evaluate(&mut s, &wifi_now(at(5, 9, 2), Some("Office"), ThermalMode::UltraPerformance), &rules), vec![]);
+        assert_eq!(
+            evaluate(&mut s, &wifi_now(at(5, 9, 3), None, ThermalMode::UltraPerformance), &rules),
+            vec![restored("join", vec![Change::Thermal(ThermalMode::Optimized)])]
+        );
+        assert!(s.active.is_empty());
+    }
+
+    #[test]
+    fn without_restore_nothing_comes_back() {
+        let rules = vec![routine("join", wifi("Office", true), thermal(ThermalMode::UltraPerformance))];
+        let mut s = seen(true, at(5, 9, 0));
+        evaluate(&mut s, &wifi_now(at(5, 9, 0), None, ThermalMode::Optimized), &rules);
+        evaluate(&mut s, &wifi_now(at(5, 9, 1), Some("Office"), ThermalMode::Optimized), &rules);
+        assert_eq!(evaluate(&mut s, &wifi_now(at(5, 9, 2), None, ThermalMode::UltraPerformance), &rules), vec![]);
+        assert!(s.active.is_empty());
+    }
+
+    #[test]
+    fn a_setting_changed_by_hand_is_not_restored() {
+        let rules = vec![restoring(
+            "join",
+            wifi("Office", true),
+            Actions { thermal: Some(ThermalMode::UltraPerformance), power_mode: Some(PowerMode::BestPerformance), ..Actions::default() },
+        )];
+        let mut s = seen(true, at(5, 9, 0));
+        evaluate(&mut s, &wifi_now(at(5, 9, 0), None, ThermalMode::Optimized), &rules);
+        evaluate(&mut s, &wifi_now(at(5, 9, 1), Some("Office"), ThermalMode::Optimized), &rules);
+        // Thermal changed by hand to Quiet; the power mode is still what the routine set.
+        let mut leave = wifi_now(at(5, 9, 2), None, ThermalMode::Quiet);
+        leave.current.power_mode = Some(PowerMode::BestPerformance);
+        assert_eq!(evaluate(&mut s, &leave, &rules), vec![restored("join", vec![Change::PowerMode(PowerMode::Balanced)])]);
+    }
+
+    #[test]
+    fn nothing_is_restored_when_the_setting_was_already_there() {
+        let rules = vec![restoring("join", wifi("Office", true), thermal(ThermalMode::Optimized))];
+        let mut s = seen(true, at(5, 9, 0));
+        evaluate(&mut s, &wifi_now(at(5, 9, 0), None, ThermalMode::Optimized), &rules);
+        evaluate(&mut s, &wifi_now(at(5, 9, 1), Some("Office"), ThermalMode::Optimized), &rules);
+        assert!(s.active.is_empty());
+        assert_eq!(evaluate(&mut s, &wifi_now(at(5, 9, 2), None, ThermalMode::Optimized), &rules), vec![]);
+    }
+
+    fn overlapping() -> Vec<Routine> {
+        vec![
+            restoring("office", wifi("Office", true), thermal(ThermalMode::UltraPerformance)),
+            restoring("dock", Trigger::Display { connected: true }, thermal(ThermalMode::Cool)),
+        ]
+    }
+
+    fn office_and_dock(now: NaiveDateTime, office: bool, displays: u32, current: ThermalMode) -> Inputs {
+        Inputs { displays: Some(displays), ..wifi_now(now, office.then_some("Office"), current) }
+    }
+
+    #[test]
+    fn overlapping_routines_restore_the_state_from_before_the_first() {
+        let rules = overlapping();
+        let mut s = seen(true, at(5, 9, 0));
+        evaluate(&mut s, &office_and_dock(at(5, 9, 0), false, 0, ThermalMode::Optimized), &rules);
+        evaluate(&mut s, &office_and_dock(at(5, 9, 1), true, 0, ThermalMode::Optimized), &rules);
+        evaluate(&mut s, &office_and_dock(at(5, 9, 2), true, 1, ThermalMode::UltraPerformance), &rules);
+        // The first one ends while the second still holds the mode: nothing changes yet.
+        assert_eq!(evaluate(&mut s, &office_and_dock(at(5, 9, 3), false, 1, ThermalMode::Cool), &rules), vec![]);
+        assert_eq!(
+            evaluate(&mut s, &office_and_dock(at(5, 9, 4), false, 0, ThermalMode::Cool), &rules),
+            vec![restored("dock", vec![Change::Thermal(ThermalMode::Optimized)])]
+        );
+    }
+
+    #[test]
+    fn overlapping_routines_ending_in_reverse_unwind_one_by_one() {
+        let rules = overlapping();
+        let mut s = seen(true, at(5, 9, 0));
+        evaluate(&mut s, &office_and_dock(at(5, 9, 0), false, 0, ThermalMode::Optimized), &rules);
+        evaluate(&mut s, &office_and_dock(at(5, 9, 1), true, 0, ThermalMode::Optimized), &rules);
+        evaluate(&mut s, &office_and_dock(at(5, 9, 2), true, 1, ThermalMode::UltraPerformance), &rules);
+        assert_eq!(
+            evaluate(&mut s, &office_and_dock(at(5, 9, 3), true, 0, ThermalMode::Cool), &rules),
+            vec![restored("dock", vec![Change::Thermal(ThermalMode::UltraPerformance)])]
+        );
+        assert_eq!(
+            evaluate(&mut s, &office_and_dock(at(5, 9, 4), false, 0, ThermalMode::UltraPerformance), &rules),
+            vec![restored("office", vec![Change::Thermal(ThermalMode::Optimized)])]
+        );
+    }
+
+    #[test]
+    fn a_routine_firing_as_another_ends_wins_and_restores_the_original_later() {
+        let rules = vec![
+            restoring("office", wifi("Office", true), thermal(ThermalMode::UltraPerformance)),
+            restoring("home", wifi("Home", true), thermal(ThermalMode::Quiet)),
+        ];
+        let mut s = seen(true, at(5, 9, 0));
+        evaluate(&mut s, &wifi_now(at(5, 9, 0), None, ThermalMode::Optimized), &rules);
+        evaluate(&mut s, &wifi_now(at(5, 9, 1), Some("Office"), ThermalMode::Optimized), &rules);
+        assert_eq!(
+            evaluate(&mut s, &wifi_now(at(5, 9, 2), Some("Home"), ThermalMode::UltraPerformance), &rules),
+            vec![run("home", vec![Change::Thermal(ThermalMode::Quiet)])]
+        );
+        assert_eq!(
+            evaluate(&mut s, &wifi_now(at(5, 9, 3), None, ThermalMode::Quiet), &rules),
+            vec![restored("home", vec![Change::Thermal(ThermalMode::Optimized)])]
+        );
+    }
+
+    #[test]
+    fn battery_below_ends_when_the_level_is_back() {
+        let rules = vec![restoring("low", Trigger::BatteryBelow { percent: 20 }, thermal(ThermalMode::Quiet))];
+        let pct = |now, p, mode| Inputs { battery_pct: Some(p), current: now_at(mode), ..Inputs::at(now, false) };
+        let mut s = seen(false, at(5, 9, 0));
+        evaluate(&mut s, &pct(at(5, 9, 0), 21.0, ThermalMode::Optimized), &rules);
+        evaluate(&mut s, &pct(at(5, 9, 1), 19.0, ThermalMode::Optimized), &rules);
+        assert_eq!(evaluate(&mut s, &pct(at(5, 9, 2), 19.5, ThermalMode::Quiet), &rules), vec![]);
+        assert_eq!(
+            evaluate(&mut s, &pct(at(5, 9, 3), 20.0, ThermalMode::Quiet), &rules),
+            vec![restored("low", vec![Change::Thermal(ThermalMode::Optimized)])]
+        );
+    }
+
+    #[test]
+    fn long_ac_ends_when_unplugged() {
+        let rules = vec![
+            Routine { restore: true, ..long_ac(3) },
+            routine("am", time(EVERY_DAY, "08:00"), battery(BatteryProfile::Campus)),
+        ];
+        let tick = |now, on_ac| Inputs { current: now_at(ThermalMode::Optimized), ..Inputs::at(now, on_ac) };
+        let mut s = seen(true, at(5, 7, 0));
+        evaluate(&mut s, &tick(at(5, 7, 0), true), &rules);
+        evaluate(&mut s, &tick(at(8, 7, 0), true), &rules);
+        let mut unplug = tick(at(8, 7, 30), false);
+        unplug.current.battery = Some(BatteryProfile::Storage);
+        // Back to what it was, not to the time routine's profile.
+        assert_eq!(evaluate(&mut s, &unplug, &rules), vec![restored("long", vec![Change::Battery(BatteryProfile::Home)])]);
+    }
+
+    #[test]
+    fn plugging_in_ends_an_on_battery_routine() {
+        let rules = vec![restoring("bat", power(false), thermal(ThermalMode::Quiet))];
+        let tick = |now, on_ac, mode| Inputs { current: now_at(mode), ..Inputs::at(now, on_ac) };
+        let mut s = seen(true, at(5, 9, 0));
+        evaluate(&mut s, &tick(at(5, 9, 1), false, ThermalMode::UltraPerformance), &rules);
+        assert_eq!(
+            evaluate(&mut s, &tick(at(5, 9, 2), true, ThermalMode::Quiet), &rules),
+            vec![restored("bat", vec![Change::Thermal(ThermalMode::UltraPerformance)])]
+        );
+    }
+
+    #[test]
+    fn time_routines_have_no_end_to_restore_at() {
+        let rules = vec![restoring("am", time(EVERY_DAY, "08:00"), thermal(ThermalMode::Quiet))];
+        let mut s = seen(true, at(5, 7, 0));
+        let tick = Inputs { current: now_at(ThermalMode::Optimized), ..Inputs::at(at(5, 8, 0), true) };
+        assert_eq!(evaluate(&mut s, &tick, &rules), vec![run("am", vec![Change::Thermal(ThermalMode::Quiet)])]);
+        assert!(s.active.is_empty());
+    }
+
+    #[test]
+    fn switching_restore_off_forgets_what_to_restore() {
+        let mut rules = vec![restoring("join", wifi("Office", true), thermal(ThermalMode::UltraPerformance))];
+        let mut s = seen(true, at(5, 9, 0));
+        evaluate(&mut s, &wifi_now(at(5, 9, 0), None, ThermalMode::Optimized), &rules);
+        evaluate(&mut s, &wifi_now(at(5, 9, 1), Some("Office"), ThermalMode::Optimized), &rules);
+        rules[0].restore = false;
+        evaluate(&mut s, &wifi_now(at(5, 9, 2), Some("Office"), ThermalMode::UltraPerformance), &rules);
+        assert!(s.active.is_empty());
+        rules[0].restore = true;
+        assert_eq!(evaluate(&mut s, &wifi_now(at(5, 9, 3), None, ThermalMode::UltraPerformance), &rules), vec![]);
+    }
+
+    #[test]
+    fn a_trigger_describes_its_end() {
+        assert_eq!(wifi("Office", true).describe_end(), "Disconnected from Office");
+        assert_eq!(power(false).describe_end(), "Plugged in");
+        assert_eq!(Trigger::BatteryBelow { percent: 20 }.describe_end(), "Battery back to 20%");
+        assert_eq!(Trigger::LongAc { days: 3 }.describe_end(), "On battery");
+    }
+
     #[test]
     fn state_survives_a_restart() {
         let dir = tempfile::tempdir().unwrap();
@@ -777,6 +1164,7 @@ mod tests {
             displays: Some(1),
             bluetooth: Some(vec!["Mouse".into()]),
             battery_pct: Some(80),
+            active: vec![Active { id: "join".into(), before: thermal(ThermalMode::Quiet), set: thermal(ThermalMode::Cool) }],
         };
         save_state(&path, &s).unwrap();
         assert_eq!(load_state(&path), s);
@@ -823,6 +1211,10 @@ mod tests {
         assert_eq!(json["trigger"], serde_json::json!({ "kind": "wifi", "ssid": "Office", "connected": true }));
         assert_eq!(json["actions"]["powerMode"], "Balanced");
         assert_eq!(json["actions"]["thermal"], serde_json::Value::Null);
+        assert_eq!(json["restore"], false);
+        let mut old = json.clone();
+        old.as_object_mut().unwrap().remove("restore");
+        assert_eq!(serde_json::from_value::<Routine>(old).unwrap(), r);
         let below = serde_json::to_value(Trigger::BatteryBelow { percent: 20 }).unwrap();
         assert_eq!(below, serde_json::json!({ "kind": "batteryBelow", "percent": 20 }));
     }
@@ -849,6 +1241,7 @@ mod tests {
                     trigger: power(true),
                     actions: thermal(ThermalMode::UltraPerformance),
                     notify: false,
+                    restore: false,
                 },
                 Routine {
                     id: "long-ac".into(),
@@ -857,6 +1250,7 @@ mod tests {
                     trigger: Trigger::LongAc { days: 5 },
                     actions: battery(BatteryProfile::Storage),
                     notify: false,
+                    restore: false,
                 },
                 Routine {
                     id: "schedule-0".into(),
@@ -865,6 +1259,7 @@ mod tests {
                     trigger: time(&[0, 1], "08:00"),
                     actions: battery(BatteryProfile::Campus),
                     notify: false,
+                    restore: false,
                 },
             ]
         );

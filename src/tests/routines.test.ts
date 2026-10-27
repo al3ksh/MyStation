@@ -31,6 +31,9 @@ describe('describeActions', () => {
     ).toBe('Ultra Performance · Desk profile · Windows: Best performance · Notifies')
     expect(describeActions({ thermal: null, battery: null, powerMode: null }, true)).toBe('Notifies')
     expect(describeActions({ thermal: 'Quiet', battery: null, powerMode: null }, false)).toBe('Quiet')
+    expect(describeActions({ thermal: 'Quiet', battery: null, powerMode: null }, true, true)).toBe(
+      'Quiet · Restores · Notifies',
+    )
   })
 })
 

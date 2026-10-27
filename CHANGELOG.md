@@ -17,6 +17,11 @@ no section here.
   thermal mode, battery profile and Windows power mode, and optionally show a
   notification. When two routines switch the same setting, the higher one in
   the list wins. Your existing rules become routines.
+- A routine can restore what it changed when its trigger ends: leaving the
+  Wi-Fi network, unplugging, disconnecting the display or device, the battery
+  back above the level, or unplugging after days on AC. A setting you changed
+  by hand in between stays. Overlapping routines unwind to the state before
+  the first one.
 
 ## 0.6.0 — 2026-10-27
 
