@@ -8,6 +8,7 @@ pub mod probe;
 pub mod state;
 pub mod sync;
 pub mod tray;
+pub mod updates;
 pub mod windows;
 
 use tauri::{Manager, RunEvent};
@@ -61,6 +62,7 @@ pub fn run() {
             tray::build(app.handle())?;
             // Starts in Idle: tray only, no WebView.
             poller::spawn(app.handle().clone(), rx);
+            updates::spawn(app.handle().clone());
             // Without Dell Command | Configure the app can only watch; its banner says what to install.
             if setup_notice {
                 windows::open_full(app.handle());

@@ -47,6 +47,7 @@ function appState(over: Partial<AppState> = {}): AppState {
     powerMode: 'Balanced',
     energySaver: false,
     matchPowerMode: false,
+    updateVersion: null,
     ...over,
   }
 }
@@ -243,6 +244,21 @@ describe('Flyout', () => {
     await loaded()
     await fireEvent.click(screen.getByRole('button', { name: 'Open full window' }))
     expect(invoke).toHaveBeenCalledWith('open_full_window')
+  })
+
+  test('a new version shows as a quiet link that opens Settings', async () => {
+    invoke.mockResolvedValue(appState({ updateVersion: '0.7.0' }))
+    render(Flyout)
+    await loaded()
+    await fireEvent.click(screen.getByRole('button', { name: 'Update 0.7.0 available' }))
+    expect(invoke).toHaveBeenCalledWith('open_full_window', { section: 'Settings' })
+  })
+
+  test('no update, no link', async () => {
+    invoke.mockResolvedValue(appState())
+    render(Flyout)
+    await loaded()
+    expect(screen.queryByRole('button', { name: /Update/ })).toBeNull()
   })
 
   test('re-measures itself each time the window is shown again', async () => {

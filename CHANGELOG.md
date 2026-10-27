@@ -22,6 +22,8 @@ no section here.
   back above the level, or unplugging after days on AC. A setting you changed
   by hand in between stays. Overlapping routines unwind to the state before
   the first one.
+- A new version shows quietly: a link in the flyout footer and a dot next to
+  Settings. Installing it stays a click in Settings.
 
 ## 0.6.0 — 2026-10-27
 

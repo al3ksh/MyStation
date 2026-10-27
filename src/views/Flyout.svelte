@@ -178,6 +178,15 @@
   <footer>
     <Icon name="gauge" size={14} />
     <span>{name}</span>
+    {#if app?.updateVersion}
+      <button
+        type="button"
+        class="update"
+        aria-label="Update {app.updateVersion} available"
+        title="Open Settings to install"
+        onclick={() => api.openFullWindow('Settings')}>Update {app.updateVersion}</button
+      >
+    {/if}
     <button type="button" class="icon-btn" aria-label="Open full window" title="Open full window" onclick={() => api.openFullWindow()}>
       <Icon name="openWindow" size={14} />
     </button>
@@ -321,5 +330,24 @@
 
   .icon-btn:hover {
     background: var(--surface-hover);
+  }
+
+  .update {
+    margin-left: auto;
+    padding: 4px 6px;
+    font: inherit;
+    color: var(--accent);
+    background: none;
+    border: none;
+    border-radius: var(--r-ctl);
+    cursor: default;
+  }
+
+  .update:hover {
+    background: var(--surface-hover);
+  }
+
+  .update + .icon-btn {
+    margin-left: 0;
   }
 </style>

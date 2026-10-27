@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { listen } from '@tauri-apps/api/event'
   import { onDestroy, onMount, tick, untrack } from 'svelte'
   import Banner from '../components/Banner.svelte'
   import Icon from '../components/Icon.svelte'
@@ -35,9 +36,19 @@
     { name: 'BIOS', icon: 'bios' },
   ]
 
-  let section = $state<Section>('Overview')
+  const isSection = (s: unknown): s is Section =>
+    s === 'Settings' || SECTIONS.some((x) => x.name === s)
+
+  // Set by the backend when the window is opened on a given page.
+  const start = (window as { __SECTION__?: unknown }).__SECTION__
+  let section = $state<Section>(isSection(start) ? start : 'Overview')
   let device = $state<DeviceInfo | null>(null)
   let name = $state(FALLBACK_NAME)
+
+  // An already open window is sent the page instead.
+  const unlistenSection = listen<string>('open-section', (e) => {
+    if (isSection(e.payload)) section = e.payload
+  })
 
   onMount(() => {
     const loaded = Promise.all([
@@ -59,6 +70,7 @@
     )
   })
   onDestroy(() => {
+    void unlistenSection.then((u) => u())
     live.stop()
     history.clear()
   })
@@ -73,16 +85,18 @@
   const banners = $derived(app ? bannersFor(app) : [])
 </script>
 
-{#snippet item(name: Section, icon: IconName)}
+{#snippet item(name: Section, icon: IconName, dot = false)}
   <button
     type="button"
     class="item"
     class:active={section === name}
     aria-current={section === name ? 'page' : undefined}
+    aria-label={dot ? `${name}, update available` : undefined}
     onclick={() => (section = name)}
   >
     <Icon name={icon} />
     <span>{name}</span>
+    {#if dot}<span class="dot" aria-hidden="true"></span>{/if}
   </button>
 {/snippet}
 
@@ -103,7 +117,7 @@
     {/each}
 
     <div class="spacer"></div>
-    {@render item('Settings', 'settings')}
+    {@render item('Settings', 'settings', !!app?.updateVersion)}
   </nav>
 
   <main>
@@ -198,6 +212,15 @@
     border-radius: var(--r-ctl);
     cursor: default;
     transition: background 120ms var(--ease);
+  }
+
+  .dot {
+    width: 6px;
+    height: 6px;
+    margin-left: auto;
+    margin-right: 4px;
+    border-radius: 50%;
+    background: var(--accent);
   }
 
   .item:hover {

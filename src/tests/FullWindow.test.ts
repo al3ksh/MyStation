@@ -51,6 +51,7 @@ function appState(over: Partial<AppState> = {}): AppState {
     powerMode: 'Balanced',
     energySaver: false,
     matchPowerMode: false,
+    updateVersion: null,
     ...over,
   }
 }
@@ -93,8 +94,11 @@ function route(
   })
 }
 
+const loaded = () =>
+  waitFor(() => expect(screen.getByRole('radio', { name: 'Desk' }).getAttribute('aria-checked')).toBe('true'))
+
 async function open(section: string) {
-  await waitFor(() => expect(screen.getByRole('radio', { name: 'Desk' }).getAttribute('aria-checked')).toBe('true'))
+  await loaded()
   await fireEvent.click(screen.getByRole('button', { name: section }))
 }
 
@@ -290,6 +294,36 @@ describe('FullWindow', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Install and restart' }))
     await waitFor(() => expect(relaunch).toHaveBeenCalled())
     expect(downloadAndInstall).toHaveBeenCalled()
+  })
+
+  test('a found update marks Settings and offers the install there', async () => {
+    route(appState({ updateVersion: '0.7.0' }))
+    const downloadAndInstall = vi.fn().mockResolvedValue(undefined)
+    checkUpdate.mockResolvedValue({ version: '0.7.0', downloadAndInstall })
+    render(FullWindow)
+    await loaded()
+    expect(screen.getByRole('button', { name: 'Settings, update available' })).toBeTruthy()
+    await open('Settings, update available')
+    expect(await screen.findByText('Version 0.7.0 is available')).toBeTruthy()
+    await fireEvent.click(screen.getByRole('button', { name: 'Install and restart' }))
+    await waitFor(() => expect(relaunch).toHaveBeenCalled())
+    expect(downloadAndInstall).toHaveBeenCalled()
+  })
+
+  test('opens on the section it was asked for', async () => {
+    route(appState())
+    ;(window as { __SECTION__?: string }).__SECTION__ = 'Settings'
+    render(FullWindow)
+    expect(await screen.findByRole('heading', { name: 'Settings', level: 1 })).toBeTruthy()
+    delete (window as { __SECTION__?: string }).__SECTION__
+  })
+
+  test('an open window switches to the section it is sent to', async () => {
+    route(appState())
+    render(FullWindow)
+    await loaded()
+    handlers['open-section']({ payload: 'Settings' })
+    expect(await screen.findByRole('heading', { name: 'Settings', level: 1 })).toBeTruthy()
   })
 
   test('a failed update check shows the error', async () => {

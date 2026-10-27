@@ -76,6 +76,18 @@
     }
   }
 
+  /** The background check only knows the version: fetch the update itself, then install. */
+  async function installFound() {
+    update = { kind: 'checking' }
+    try {
+      const found = await check()
+      if (found) await install(found)
+      else update = { kind: 'current' }
+    } catch (e) {
+      update = { kind: 'failed', message: `Couldn't check for updates: ${errorText(e)}` }
+    }
+  }
+
   async function install(found: Update) {
     update = { kind: 'installing' }
     try {
@@ -99,7 +111,9 @@
       case 'failed':
         return update.message
       default:
-        return 'Updates come from GitHub Releases and are signature-checked'
+        return app?.updateVersion
+          ? `Version ${app.updateVersion} is available`
+          : 'Updates come from GitHub Releases and are signature-checked'
     }
   })
 
@@ -162,6 +176,8 @@
       {#if update.kind === 'available'}
         {@const found = update.update}
         <button type="button" class="btn accent" onclick={() => install(found)}>Install and restart</button>
+      {:else if update.kind === 'idle' && app?.updateVersion}
+        <button type="button" class="btn accent" onclick={installFound}>Install and restart</button>
       {:else}
         <button
           type="button"

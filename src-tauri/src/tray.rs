@@ -277,6 +277,7 @@ mod tests {
             power_mode: None,
             energy_saver: false,
             match_power_mode: false,
+            update_version: None,
         }
     }
 

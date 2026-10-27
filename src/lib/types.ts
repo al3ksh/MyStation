@@ -58,6 +58,8 @@ export interface AppState {
   energySaver: boolean
   /** Changing the thermal mode also sets the matching Windows power mode. */
   matchPowerMode: boolean
+  /** A newer release the background check found, if any. */
+  updateVersion: string | null
 }
 
 export type PowerMode = 'BestEfficiency' | 'Balanced' | 'BestPerformance'

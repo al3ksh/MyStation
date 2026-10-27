@@ -46,6 +46,8 @@ pub struct AppState {
     /// Energy Saver is on: Windows runs at best power efficiency whatever the power mode.
     pub energy_saver: bool,
     pub match_power_mode: bool,
+    /// A newer release found by the background check; installing it stays in Settings.
+    pub update_version: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -113,6 +115,7 @@ impl Core {
             power_mode: platform::power_mode::get(),
             energy_saver: platform::power_mode::energy_saver(),
             match_power_mode: config.match_power_mode,
+            update_version: None,
         };
         let core = Self {
             cctk,

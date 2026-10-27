@@ -12,7 +12,7 @@ use chrono::Local;
 use mystation_core::tray_icon::{BlurDebounce, ToggleGuard};
 use tauri::window::{Effect, EffectsBuilder};
 use tauri::{
-    AppHandle, LogicalSize, Manager, PhysicalPosition, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent,
+    AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent,
 };
 
 use crate::state::{Core, PollMode};
@@ -217,6 +217,11 @@ fn place_flyout(app: &AppHandle, w: &WebviewWindow) {
 }
 
 pub fn open_full(app: &AppHandle) {
+    open_full_at(app, None);
+}
+
+/// A new window starts on `section`; an open one is told to switch to it.
+pub fn open_full_at(app: &AppHandle, section: Option<&str>) {
     if let Some(f) = app.get_webview_window(FLYOUT)
         && f.is_visible().unwrap_or(false)
     {
@@ -226,9 +231,14 @@ pub fn open_full(app: &AppHandle) {
         let _ = w.unminimize();
         let _ = w.show();
         let _ = w.set_focus();
+        if let Some(s) = section {
+            let _ = app.emit_to(MAIN, "open-section", s);
+        }
         return;
     }
+    let start = section.map(|s| format!("window.__SECTION__ = {};", serde_json::Value::from(s))).unwrap_or_default();
     let built = WebviewWindowBuilder::new(app, MAIN, WebviewUrl::App("index.html".into()))
+        .initialization_script(&start)
         .title(crate::commands::display_name())
         .inner_size(960.0, 640.0)
         .min_inner_size(760.0, 520.0)

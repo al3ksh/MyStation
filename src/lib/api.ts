@@ -38,7 +38,9 @@ export const api = {
   getAppEnergy: () => invoke<EnergyReport>('get_app_energy'),
   /** Needs administrator rights; runs powercfg. */
   getSleep: () => invoke<SleepReport>('get_sleep'),
-  openFullWindow: () => invoke<void>('open_full_window'),
+  /** `section` opens the window on that page. */
+  openFullWindow: (section?: string) =>
+    section ? invoke<void>('open_full_window', { section }) : invoke<void>('open_full_window'),
   /** The calling window has painted its first state; the backend shows it only now, so it never flashes blank. */
   windowReady: () => invoke<void>('window_ready'),
 }

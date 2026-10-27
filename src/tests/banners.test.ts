@@ -50,6 +50,7 @@ function appState(over: Partial<AppState> = {}): AppState {
     powerMode: 'Balanced',
     energySaver: false,
     matchPowerMode: false,
+    updateVersion: null,
     ...over,
   }
 }

@@ -152,9 +152,10 @@ pub fn dismiss_optimizer_warning(app: AppHandle, core: State<'_, Core>) {
     let _ = app.emit("state-changed", &state);
 }
 
+/// `section` opens the window on that page, e.g. Settings for an update.
 #[tauri::command(async)]
-pub fn open_full_window(app: AppHandle) {
-    crate::windows::open_full(&app);
+pub fn open_full_window(app: AppHandle, section: Option<String>) {
+    crate::windows::open_full_at(&app, section.as_deref());
 }
 
 /// The flyout's content height (CSS px): the window is sized to it.
