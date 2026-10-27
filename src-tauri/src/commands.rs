@@ -1,7 +1,7 @@
 //! Tauri commands. Errors reach the UI as English sentences.
 
 use chrono::Local;
-use mystation_core::automation::{self, Automation};
+use mystation_core::automation::{self, Routine};
 use mystation_core::bios;
 use mystation_core::boot;
 use mystation_core::config;
@@ -192,24 +192,43 @@ pub fn get_app_name() -> &'static str {
 }
 
 #[tauri::command]
-pub fn get_automation(core: State<'_, Core>) -> Automation {
-    core.config.lock_ok().automation.clone()
+pub fn get_routines(core: State<'_, Core>) -> Vec<Routine> {
+    core.config.lock_ok().routines.clone()
 }
 
 #[tauri::command(async)]
-pub fn set_automation(core: State<'_, Core>, rules: Automation) -> Result<Automation, String> {
-    automation::validate(&rules)?;
+pub fn set_routines(core: State<'_, Core>, routines: Vec<Routine>) -> Result<Vec<Routine>, String> {
+    automation::validate(&routines)?;
     {
         let mut cfg = core.config.lock_ok();
         let mut next = cfg.clone();
-        next.automation = rules.clone();
+        next.routines = routines.clone();
         config::save(&config_path(), &next).map_err(|e| format!("Could not save settings: {e}"))?;
         *cfg = next;
     }
     let mut state = core.automation.lock_ok();
     state.rules_changed(Local::now().naive_local());
     crate::automation::persist(&state);
-    Ok(rules)
+    Ok(routines)
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RoutineOptions {
+    /// The network the laptop is on now.
+    ssid: Option<String>,
+    networks: Vec<String>,
+    bluetooth: Vec<String>,
+}
+
+/// Choices for the routine editor: saved Wi-Fi networks and paired Bluetooth devices.
+#[tauri::command(async)]
+pub fn routine_options() -> RoutineOptions {
+    RoutineOptions {
+        ssid: platform::wifi::current_ssid().flatten(),
+        networks: platform::wifi::saved_networks(),
+        bluetooth: mystation_core::bluetooth::names(&platform::bluetooth::nodes(), false),
+    }
 }
 
 /// The curated BIOS settings with their current values; one cctk run (seconds).

@@ -92,6 +92,24 @@ pub fn devices(nodes: Vec<RawBtNode>) -> Vec<BtDevice> {
     out
 }
 
+/// One name per device, sorted: the paired ones, or only those connected now. Routines follow
+/// devices by these names.
+pub fn names(nodes: &[RawBtNode], connected_only: bool) -> Vec<String> {
+    let mut groups: BTreeMap<String, Vec<&RawBtNode>> = BTreeMap::new();
+    for n in nodes {
+        groups.entry(n.container.to_ascii_lowercase()).or_default().push(n);
+    }
+    let mut out: Vec<String> = groups
+        .values()
+        .filter(|g| !connected_only || g.iter().any(|n| n.connected))
+        .filter_map(|g| g.iter().map(|n| n.name.trim()).filter(|n| !n.is_empty()).min_by_key(|n| n.len()))
+        .map(String::from)
+        .collect();
+    out.sort();
+    out.dedup();
+    out
+}
+
 /// Which devices have already warned about a low battery.
 #[derive(Debug, Default)]
 pub struct LowBattery {
@@ -124,6 +142,18 @@ mod tests {
 
     fn device(container: &str, battery_pct: u8) -> BtDevice {
         BtDevice { container: container.into(), name: container.into(), kind: BtKind::Mouse, battery_pct }
+    }
+
+    #[test]
+    fn names_are_one_per_device() {
+        let nodes = vec![
+            node("A", "WH-1000XM5 Hands-Free", None, true, None),
+            node("a", "WH-1000XM5", None, false, None),
+            node("B", "Mouse", None, false, Some(50)),
+            node("C", " ", None, true, None),
+        ];
+        assert_eq!(names(&nodes, false), vec!["Mouse".to_string(), "WH-1000XM5".to_string()]);
+        assert_eq!(names(&nodes, true), vec!["WH-1000XM5".to_string()]);
     }
 
     #[test]

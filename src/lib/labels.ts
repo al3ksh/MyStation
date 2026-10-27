@@ -1,4 +1,4 @@
-import type { ActiveProfile, BatteryProfile, ChargeCfg, ThermalMode } from './types'
+import type { ActiveProfile, BatteryProfile, ChargeCfg, PowerMode, ThermalMode } from './types'
 
 export const PROFILE_LABEL: Record<BatteryProfile, string> = {
   home: 'Desk',
@@ -11,6 +11,19 @@ export const THERMAL_LABEL: Record<ThermalMode, string> = {
   Cool: 'Cool',
   Quiet: 'Quiet',
   UltraPerformance: 'Ultra Performance',
+}
+
+export const POWER_MODE_LABEL: Record<PowerMode, string> = {
+  BestEfficiency: 'Best power efficiency',
+  Balanced: 'Balanced',
+  BestPerformance: 'Best performance',
+}
+
+/** The Windows power mode that goes with a thermal mode when the two are matched. */
+export function powerModeFor(mode: ThermalMode): PowerMode {
+  if (mode === 'UltraPerformance') return 'BestPerformance'
+  if (mode === 'Optimized') return 'Balanced'
+  return 'BestEfficiency'
 }
 
 const BIOS_MODE_LABEL: Record<Exclude<ChargeCfg['kind'], 'Custom'>, string> = {

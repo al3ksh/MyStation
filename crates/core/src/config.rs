@@ -4,7 +4,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use crate::automation::Automation;
+use crate::automation::{Automation, Routine, migrate};
 use crate::dell::{ChargeCfg, validate_custom};
 use crate::profile::Profiles;
 
@@ -14,7 +14,10 @@ pub struct Config {
     pub version: u32,
     pub profiles: Profiles,
     pub optimizer_warning_dismissed: bool,
-    pub automation: Automation,
+    pub routines: Vec<Routine>,
+    /// The fixed rules from before routines; read once to migrate, never written back.
+    #[serde(rename = "automation", skip_serializing)]
+    pub legacy: Option<Automation>,
     /// The first start without Dell Command | Configure opened the full window to say it is needed.
     pub setup_notice_shown: bool,
     /// Changing the thermal mode also sets the matching Windows power mode.
@@ -38,7 +41,8 @@ impl Default for Config {
             version: 1,
             profiles: Profiles::default(),
             optimizer_warning_dismissed: false,
-            automation: Automation::default(),
+            routines: Vec::new(),
+            legacy: None,
             setup_notice_shown: false,
             match_power_mode: false,
         }
@@ -61,6 +65,11 @@ pub fn load(path: &Path) -> Config {
             return Config::default();
         }
     };
+    if let Some(old) = cfg.legacy.take()
+        && cfg.routines.is_empty()
+    {
+        cfg.routines = migrate(&old);
+    }
     let mut discarded = false;
     let defaults = Profiles::default();
     for (slot, fallback) in [
@@ -121,7 +130,14 @@ mod tests {
         let mut cfg = Config::default();
         cfg.profiles.home = ChargeCfg::Custom { start: 70, stop: 85 };
         cfg.optimizer_warning_dismissed = true;
-        cfg.automation.thermal.enabled = true;
+        cfg.routines = vec![Routine {
+            id: "a".into(),
+            name: "On battery".into(),
+            enabled: true,
+            trigger: crate::automation::Trigger::Power { plugged: false },
+            actions: crate::automation::Actions::default(),
+            notify: true,
+        }];
         cfg.match_power_mode = true;
         save(&path, &cfg).unwrap();
         assert_eq!(load(&path), cfg);
@@ -134,7 +150,26 @@ mod tests {
         std::fs::write(&path, r#"{"version":1,"optimizerWarningDismissed":true}"#).unwrap();
         let cfg = load(&path);
         assert!(cfg.optimizer_warning_dismissed);
-        assert_eq!(cfg.automation, Automation::default());
+        assert_eq!(cfg.routines, vec![]);
+    }
+
+    #[test]
+    fn old_rules_become_routines_and_are_not_written_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        std::fs::write(
+            &path,
+            r#"{"version":1,"automation":{"thermal":{"enabled":true,"onAc":null,"onBattery":"Quiet"},"notify":false}}"#,
+        )
+        .unwrap();
+        let cfg = load(&path);
+        assert_eq!(cfg.legacy, None);
+        assert_eq!(cfg.routines.len(), 1);
+        assert_eq!(cfg.routines[0].id, "on-battery");
+        assert!(!cfg.routines[0].notify);
+        save(&path, &cfg).unwrap();
+        assert!(!std::fs::read_to_string(&path).unwrap().contains("\"automation\""));
+        assert_eq!(load(&path), cfg);
     }
 
     #[test]

@@ -8,7 +8,9 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
 use chrono::Local;
+use mystation_core::automation::Inputs;
 use mystation_core::bluetooth::{self, BtDevice, LowBattery};
+use mystation_core::display::Connection;
 use mystation_core::history::{HealthEntry, HistorySample};
 use mystation_core::power_mode::SourceWatch;
 use mystation_core::sensors::{
@@ -49,6 +51,10 @@ struct Poller {
     bios_busy: Arc<AtomicBool>,
     low_peripherals: LowBattery,
     source: SourceWatch,
+    /// Routine inputs read on the slow tick; `None` until the first read.
+    wifi: Option<Option<String>>,
+    displays: Option<u32>,
+    bt_connected: Option<Vec<String>>,
 }
 
 impl Poller {
@@ -72,6 +78,9 @@ impl Poller {
             bios_busy: Arc::default(),
             low_peripherals: LowBattery::default(),
             source: SourceWatch::default(),
+            wifi: None,
+            displays: None,
+            bt_connected: None,
         }
     }
 
@@ -106,8 +115,15 @@ impl Poller {
     fn tick(&mut self, mode: PollMode) {
         let raw = self.wmi.as_ref().and_then(WmiReaders::battery);
         if let Some(r) = &raw {
-            crate::automation::tick(&self.app, r.power_online);
-            self.follow_source(r.power_online);
+            let inputs = Inputs {
+                battery_pct: battery_from_raw(r).percent,
+                wifi: self.wifi.clone(),
+                displays: self.displays,
+                bluetooth: self.bt_connected.clone(),
+                ..Inputs::at(Local::now().naive_local(), r.power_online)
+            };
+            let routed = crate::automation::tick(&self.app, inputs);
+            self.follow_source(r.power_online, routed);
         }
         if mode == PollMode::Active {
             self.sample_telemetry(raw.as_ref());
@@ -169,7 +185,12 @@ impl Poller {
         // The user can change these in Windows at any time.
         let power_mode = platform::power_mode::get();
         let energy_saver = platform::power_mode::energy_saver();
-        let peripherals = bluetooth::devices(platform::bluetooth::nodes());
+        let nodes = platform::bluetooth::nodes();
+        self.bt_connected = Some(bluetooth::names(&nodes, true));
+        let peripherals = bluetooth::devices(nodes);
+        self.wifi = platform::wifi::current_ssid();
+        let external = platform::display::displays().iter().filter(|d| d.connection != Connection::Internal).count();
+        self.displays = Some(external as u32);
         for d in self.low_peripherals.check(&peripherals) {
             self.warn_low(d);
         }
@@ -190,11 +211,12 @@ impl Poller {
     }
 
     /// Windows brings back its own power mode for the new source on plug in or out; with the
-    /// modes matched, set the one that goes with the thermal mode again.
-    fn follow_source(&mut self, on_ac: bool) {
+    /// modes matched, set the one that goes with the thermal mode again. Unless a routine that
+    /// just ran sets the power mode itself.
+    fn follow_source(&mut self, on_ac: bool, routed: bool) {
         let core = self.app.state::<Core>();
         let matched = core.config.lock_ok().match_power_mode;
-        if self.source.observe(on_ac, matched, core.state().thermal).is_none() {
+        if self.source.observe(on_ac, matched, core.state().thermal).is_none() || routed {
             return;
         }
         let app = self.app.clone();

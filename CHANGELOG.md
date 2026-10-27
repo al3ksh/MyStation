@@ -10,6 +10,13 @@ no section here.
   Windows to best performance, Optimized to balanced, Cool and Quiet to best
   power efficiency. Plugging in or out keeps the match. The row says when
   Energy Saver holds Windows at best power efficiency anyway.
+- Automation is now routines, built in a wizard: when the laptop joins or
+  leaves a Wi-Fi network, is plugged in or unplugged, connects or disconnects
+  an external display or a Bluetooth device, drops below a battery level,
+  stays plugged in for days, or at a set time on chosen days, switch the
+  thermal mode, battery profile and Windows power mode, and optionally show a
+  notification. When two routines switch the same setting, the higher one in
+  the list wins. Your existing rules become routines.
 
 ## 0.6.0 — 2026-10-27
 

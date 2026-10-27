@@ -1,16 +1,17 @@
-//! Runs the automatic-profile engine on every poller tick and applies what it decides.
+//! Runs the routines on every poller tick and applies what they decide.
 
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use chrono::Local;
-use mystation_core::automation::{Action, Reason, evaluate, save_state};
+use mystation_core::automation::{Change, Inputs, Routine, evaluate, save_state};
 use mystation_core::dell::ThermalMode;
+use mystation_core::power_mode::PowerMode;
 use mystation_core::profile::{ActiveProfile, BatteryProfile};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_notification::NotificationExt;
 
 use crate::commands;
+use crate::platform;
 use crate::state::{Core, data_dir};
 use crate::sync::LockExt;
 
@@ -25,59 +26,105 @@ pub fn persist(state: &mystation_core::automation::AutomationState) {
     }
 }
 
-/// One engine step for the current power source. Writes run on a helper thread: cctk takes seconds.
-pub fn tick(app: &AppHandle, on_ac: bool) {
+/// One engine step. Writes run on a helper thread: cctk takes seconds. True when a routine
+/// sets the Windows power mode itself.
+pub fn tick(app: &AppHandle, inputs: Inputs) -> bool {
     let core = app.state::<Core>();
-    let rules = core.config.lock_ok().automation.clone();
-    let actions = {
+    let routines = core.config.lock_ok().routines.clone();
+    let runs = {
         let mut state = core.automation.lock_ok();
         let before = state.clone();
-        let actions = evaluate(&mut state, on_ac, Local::now().naive_local(), &rules);
+        let runs = evaluate(&mut state, &inputs, &routines);
         if *state != before {
             persist(&state);
         }
-        actions
+        runs
     };
-    if actions.is_empty() {
-        return;
+    if runs.is_empty() {
+        return false;
     }
+    let sets_power_mode = runs.iter().flat_map(|r| &r.changes).any(|c| matches!(c, Change::PowerMode(_)));
     let app = app.clone();
     std::thread::spawn(move || {
         // Automatic writes never overlap one another.
         static WRITING: Mutex<()> = Mutex::new(());
         let _guard = WRITING.lock_ok();
-        for action in actions {
-            apply(&app, action, rules.notify);
+        let mut switched: Vec<Vec<&'static str>> = vec![Vec::new(); runs.len()];
+        // Thermal first: with the modes matched it also sets the power mode, which a routine's
+        // own power mode then overrides.
+        for rank in 0..3 {
+            if rank == 2 && sets_power_mode {
+                // Windows brings back its own mode on a plug change; let it land first.
+                std::thread::sleep(std::time::Duration::from_secs(2));
+            }
+            for (run, names) in runs.iter().zip(switched.iter_mut()) {
+                for &change in run.changes.iter().filter(|c| order(**c) == rank) {
+                    if let Some(name) = apply(&app, change, routine(&routines, &run.id)) {
+                        names.push(name);
+                    }
+                }
+            }
+        }
+        crate::tray::refresh(&app, &app.state::<Core>().state(), None);
+        for (run, names) in runs.iter().zip(switched) {
+            if let Some(r) = routine(&routines, &run.id)
+                && r.notify
+            {
+                let what = if names.is_empty() { String::new() } else { format!(" Switched to {}.", names.join(", ")) };
+                show(&app, &r.name, &format!("{}.{what}", r.trigger.describe()));
+            }
         }
     });
+    sets_power_mode
 }
 
-fn apply(app: &AppHandle, action: Action, notify: bool) {
+fn routine<'a>(routines: &'a [Routine], id: &str) -> Option<&'a Routine> {
+    routines.iter().find(|r| r.id == id)
+}
+
+fn order(change: Change) -> u8 {
+    match change {
+        Change::Thermal(_) => 0,
+        Change::Battery(_) => 1,
+        Change::PowerMode(_) => 2,
+    }
+}
+
+/// Makes one change; the name of what it switched to, or `None` when nothing changed.
+fn apply(app: &AppHandle, change: Change, from: Option<&Routine>) -> Option<&'static str> {
     let core = app.state::<Core>();
     let current = core.state();
-    let (target, reason, result) = match action {
-        Action::Thermal { mode, reason } => {
+    let (target, result) = match change {
+        Change::Thermal(mode) => {
             if current.thermal == Some(mode) {
-                return;
+                return None;
             }
-            (thermal_name(mode), reason, commands::apply_thermal_mode(app, &core, mode))
+            (thermal_name(mode), commands::apply_thermal_mode(app, &core, mode).map(drop))
         }
-        Action::Battery { profile, reason } => {
+        Change::Battery(profile) => {
             if current.active_profile == Some(ActiveProfile::Known { profile }) {
-                return;
+                return None;
             }
-            (profile_name(profile), reason, commands::apply_battery_profile(app, &core, profile))
+            (profile_name(profile), commands::apply_battery_profile(app, &core, profile).map(drop))
+        }
+        Change::PowerMode(mode) => {
+            if platform::power_mode::get() == Some(mode) {
+                return None;
+            }
+            let result = platform::power_mode::set(mode).map_err(|e| e.to_string());
+            let state = core.update(|s| s.power_mode = platform::power_mode::get());
+            let _ = app.emit("state-changed", &state);
+            (power_mode_name(mode), result)
         }
     };
-    crate::tray::refresh(app, &core.state(), None);
-    let why = reason_text(reason, core.config.lock_ok().automation.long_ac.days);
     match result {
-        Ok(_) if notify => show(app, &format!("Switched to {target}"), &why),
-        Ok(_) => {}
+        Ok(()) => Some(target),
         Err(e) => {
-            eprintln!("automation: switching to {target} ({why}) failed: {e}");
+            let name = from.map_or("A routine", |r| r.name.as_str());
+            eprintln!("automation: {name}: switching to {target} failed: {e}");
             // A failure is always worth a notification: the user expects the change.
-            show(app, &format!("Couldn't switch to {target}"), &e);
+            show(app, &format!("Couldn't switch to {target}"), &format!("{name}: {e}"));
+            None
         }
     }
 }
@@ -105,11 +152,10 @@ fn profile_name(profile: BatteryProfile) -> &'static str {
     }
 }
 
-fn reason_text(reason: Reason, days: u32) -> String {
-    match reason {
-        Reason::OnAc => "Plugged in.".into(),
-        Reason::OnBattery => "On battery.".into(),
-        Reason::Schedule => "Scheduled.".into(),
-        Reason::LongAc => format!("Plugged in for {days} days."),
+fn power_mode_name(mode: PowerMode) -> &'static str {
+    match mode {
+        PowerMode::BestEfficiency => "best power efficiency",
+        PowerMode::Balanced => "balanced",
+        PowerMode::BestPerformance => "best performance",
     }
 }

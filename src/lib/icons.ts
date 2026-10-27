@@ -40,6 +40,11 @@ export const GLYPH = {
   controller: '\uE7FC',
   pen: '\uEDC6',
   phone: '\uE8EA',
+  wifi: '\uE701',
+  display: '\uE7F4',
+  edit: '\uE70F',
+  up: '\uE70E',
+  down: '\uE70D',
 } as const
 
 export type IconName = keyof typeof GLYPH

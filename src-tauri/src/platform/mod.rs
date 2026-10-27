@@ -20,6 +20,7 @@ pub mod spec;
 pub mod storage;
 mod system;
 pub mod usb;
+pub mod wifi;
 pub mod bluetooth;
 mod wmi_battery;
 mod wmi_dcim;

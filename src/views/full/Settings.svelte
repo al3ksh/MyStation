@@ -9,7 +9,8 @@
   import { api } from '../../lib/api'
   import { live } from '../../lib/telemetry.svelte'
   import { errorText, toasts } from '../../lib/toasts.svelte'
-  import type { DeviceInfo, PowerMode } from '../../lib/types'
+  import { POWER_MODE_LABEL } from '../../lib/labels'
+  import type { DeviceInfo } from '../../lib/types'
 
   let { device, name }: { device: DeviceInfo | null; name: string } = $props()
 
@@ -38,15 +39,9 @@
     }
   }
 
-  const POWER_MODE: Record<PowerMode, string> = {
-    BestEfficiency: 'Best power efficiency',
-    Balanced: 'Balanced',
-    BestPerformance: 'Best performance',
-  }
-
   const powerModeText = $derived.by(() => {
     if (app?.energySaver) return 'Energy Saver is on, so Windows runs at best power efficiency whatever the mode'
-    const now = app?.powerMode ? `Windows is on ${POWER_MODE[app.powerMode]}. ` : ''
+    const now = app?.powerMode ? `Windows is on ${POWER_MODE_LABEL[app.powerMode]}. ` : ''
     return `${now}Ultra Performance sets best performance, Optimized balanced, Cool and Quiet best power efficiency`
   })
 

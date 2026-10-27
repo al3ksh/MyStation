@@ -1,114 +1,149 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
-import type { Automation as Rules } from '../lib/types'
+import type { AppState, Routine } from '../lib/types'
 
 const invoke = vi.fn()
 vi.mock('@tauri-apps/api/core', () => ({ invoke: (...a: unknown[]) => invoke(...a) }))
 
 const { default: Automation } = await import('../views/full/Automation.svelte')
 const { toasts } = await import('../lib/toasts.svelte')
+const { live } = await import('../lib/telemetry.svelte')
 
-function rules(over: Partial<Rules> = {}): Rules {
+function routine(over: Partial<Routine> = {}): Routine {
   return {
-    thermal: { enabled: false, onAc: null, onBattery: null },
-    schedule: { enabled: false, entries: [] },
-    longAc: { enabled: false, days: 3, profile: 'storage' },
-    notify: true,
+    id: 'a',
+    name: 'Office',
+    enabled: true,
+    trigger: { kind: 'wifi', ssid: 'Work', connected: true },
+    actions: { thermal: 'UltraPerformance', battery: null, powerMode: null },
+    notify: false,
     ...over,
   }
 }
 
-let stored: Rules
+let stored: Routine[]
 function route(saveError?: string) {
-  invoke.mockImplementation(async (cmd: string, args?: { rules: Rules }) => {
-    if (cmd === 'get_automation') return structuredClone(stored)
-    if (cmd === 'set_automation') {
+  invoke.mockImplementation(async (cmd: string, args?: { routines: Routine[] }) => {
+    if (cmd === 'get_routines') return structuredClone(stored)
+    if (cmd === 'routine_options') return { ssid: 'TOTO4', networks: ['TOTO4', 'Work'], bluetooth: ['MX Master'] }
+    if (cmd === 'set_routines') {
       if (saveError) throw saveError
-      stored = structuredClone(args!.rules)
+      stored = structuredClone(args!.routines)
       return stored
     }
     throw new Error(`unexpected ${cmd}`)
   })
 }
 
-function saved(): Rules {
-  const calls = invoke.mock.calls.filter(([cmd]) => cmd === 'set_automation')
-  return calls.at(-1)![1].rules
+function saved(): Routine[] {
+  const calls = invoke.mock.calls.filter(([cmd]) => cmd === 'set_routines')
+  return calls.at(-1)![1].routines
 }
 
 beforeEach(() => {
   invoke.mockReset()
   toasts.items = []
-  stored = rules()
+  live.app = null
+  stored = []
   route()
 })
 
-describe('Automation page', () => {
-  test('turning on thermal rules saves them and reveals the mode pickers', async () => {
+describe('Routines page', () => {
+  test('lists each routine with what it does', async () => {
+    stored = [routine()]
     render(Automation)
-    await fireEvent.click(await screen.findByRole('switch', { name: 'Thermal mode by power source' }))
-    await waitFor(() => expect(saved().thermal.enabled).toBe(true))
-
-    await fireEvent.change(screen.getByLabelText('Plugged in'), { target: { value: 'UltraPerformance' } })
-    await waitFor(() => expect(saved().thermal.onAc).toBe('UltraPerformance'))
-
-    await fireEvent.change(screen.getByLabelText('Plugged in'), { target: { value: '' } })
-    await waitFor(() => expect(saved().thermal.onAc).toBeNull())
+    expect(await screen.findByText('Office')).toBeTruthy()
+    expect(screen.getByText('Connected to Work → Ultra Performance')).toBeTruthy()
   })
 
-  test('adding a schedule entry defaults to weekdays at 08:00 on Remote', async () => {
-    stored = rules({ schedule: { enabled: true, entries: [] } })
+  test('says when there are no routines', async () => {
     render(Automation)
-    await fireEvent.click(await screen.findByRole('button', { name: /Add entry/ }))
+    expect(await screen.findByText(/No routines yet/)).toBeTruthy()
+  })
+
+  test('the wizard builds a Wi-Fi routine on the current network', async () => {
+    render(Automation)
+    await fireEvent.click(await screen.findByRole('button', { name: /New routine/ }))
+    await waitFor(() => expect((screen.getByLabelText('Network') as HTMLInputElement).value).toBe('TOTO4'))
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    // Nothing chosen yet: the routine would do nothing.
+    expect((screen.getByRole('button', { name: 'Next' }) as HTMLButtonElement).disabled).toBe(true)
+    await fireEvent.change(screen.getByLabelText('Thermal mode'), { target: { value: 'Quiet' } })
+    await fireEvent.change(screen.getByLabelText('Battery profile'), { target: { value: 'home' } })
+    await fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+
+    expect((screen.getByLabelText('Name') as HTMLInputElement).value).toBe('Connected to TOTO4')
+    await fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
     await waitFor(() =>
-      expect(saved().schedule.entries).toEqual([{ days: [0, 1, 2, 3, 4], time: '08:00', profile: 'campus' }]),
+      expect(saved()).toEqual([
+        expect.objectContaining({
+          name: 'Connected to TOTO4',
+          enabled: true,
+          trigger: { kind: 'wifi', ssid: 'TOTO4', connected: true },
+          actions: { thermal: 'Quiet', battery: 'home', powerMode: null },
+          notify: false,
+        }),
+      ]),
     )
+    expect(await screen.findByText('Connected to TOTO4 → Quiet · Desk profile')).toBeTruthy()
   })
 
-  test('day chips toggle, and the last day of an entry cannot be removed', async () => {
-    stored = rules({ schedule: { enabled: true, entries: [{ days: [0], time: '07:30', profile: 'home' }] } })
+  test('a time trigger needs at least one day', async () => {
     render(Automation)
-    const mon = await screen.findByRole('button', { name: 'Mon' })
-    expect((mon as HTMLButtonElement).disabled).toBe(true)
-
-    await fireEvent.click(screen.getByRole('button', { name: 'Sat' }))
-    await waitFor(() => expect(saved().schedule.entries[0].days).toEqual([0, 5]))
-    expect((screen.getByRole('button', { name: 'Mon' }) as HTMLButtonElement).disabled).toBe(false)
+    await fireEvent.click(await screen.findByRole('button', { name: /New routine/ }))
+    await fireEvent.change(screen.getByLabelText('Trigger'), { target: { value: 'time' } })
+    for (const day of ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']) {
+      await fireEvent.click(screen.getByRole('button', { name: day }))
+    }
+    expect(screen.getByText('Pick at least one day')).toBeTruthy()
+    expect((screen.getByRole('button', { name: 'Next' }) as HTMLButtonElement).disabled).toBe(true)
   })
 
-  test('removing an entry saves the shorter list', async () => {
-    stored = rules({
-      schedule: {
-        enabled: true,
-        entries: [
-          { days: [0], time: '07:30', profile: 'home' },
-          { days: [5], time: '10:00', profile: 'storage' },
-        ],
-      },
-    })
+  test('with the modes matched, leaving the power mode says what it will follow', async () => {
+    live.app = { matchPowerMode: true } as AppState
     render(Automation)
-    await fireEvent.click(await screen.findByRole('button', { name: 'Remove entry 1' }))
-    await waitFor(() => expect(saved().schedule.entries).toEqual([{ days: [5], time: '10:00', profile: 'storage' }]))
+    await fireEvent.click(await screen.findByRole('button', { name: /New routine/ }))
+    await fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    await fireEvent.change(screen.getByLabelText('Thermal mode'), { target: { value: 'UltraPerformance' } })
+    const keep = screen.getByLabelText('Windows power mode').querySelector('option')!
+    expect(keep.textContent).toBe('Match thermal mode (Best performance)')
   })
 
-  test('long-AC days outside 1–60 are not saved', async () => {
-    stored = rules({ longAc: { enabled: true, days: 3, profile: 'storage' } })
+  test('editing a routine replaces it in place', async () => {
+    stored = [routine(), routine({ id: 'b', name: 'Home' })]
     render(Automation)
-    const days = await screen.findByLabelText('After days on AC')
-    await fireEvent.change(days, { target: { value: '0' } })
-    expect(invoke).not.toHaveBeenCalledWith('set_automation', expect.anything())
-    expect((days as HTMLInputElement).value).toBe('3')
-
-    await fireEvent.change(days, { target: { value: '7' } })
-    await waitFor(() => expect(saved().longAc.days).toBe(7))
+    await fireEvent.click(await screen.findByRole('button', { name: 'Edit Office' }))
+    await fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    await fireEvent.click(screen.getByRole('switch', { name: 'Show a notification' }))
+    await fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    expect((screen.getByLabelText('Name') as HTMLInputElement).value).toBe('Office')
+    await fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(saved().map((r) => [r.id, r.notify])).toEqual([['a', true], ['b', false]]))
   })
 
-  test('a failed save shows the error and reloads the stored rules', async () => {
+  test('routines move, switch off and delete', async () => {
+    stored = [routine(), routine({ id: 'b', name: 'Home' })]
+    render(Automation)
+    expect(((await screen.findByRole('button', { name: 'Move Office up' })) as HTMLButtonElement).disabled).toBe(true)
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Move Home up' }))
+    await waitFor(() => expect(saved().map((r) => r.id)).toEqual(['b', 'a']))
+
+    await fireEvent.click(screen.getByRole('switch', { name: 'Office' }))
+    await waitFor(() => expect(saved().find((r) => r.id === 'a')!.enabled).toBe(false))
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Delete Home' }))
+    await waitFor(() => expect(saved().map((r) => r.id)).toEqual(['a']))
+  })
+
+  test('a failed save shows the error and reloads what is saved', async () => {
+    stored = [routine()]
     route('Could not save settings: disk full')
     render(Automation)
-    const notify = await screen.findByRole('switch', { name: 'Notifications' })
-    await fireEvent.click(notify)
-    await waitFor(() => expect(toasts.items.map((t) => t.text)).toEqual(['Could not save settings: disk full']))
-    await waitFor(() => expect(screen.getByRole('switch', { name: 'Notifications' }).getAttribute('aria-checked')).toBe('true'))
+    await fireEvent.click(await screen.findByRole('button', { name: 'Delete Office' }))
+    await waitFor(() => expect(toasts.items.map((t) => t.text)).toContain('Could not save settings: disk full'))
+    expect(await screen.findByText('Office')).toBeTruthy()
   })
 })

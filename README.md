@@ -59,10 +59,10 @@ level live.
   - A per-app graphics choice (Auto / Integrated / NVIDIA).
   - Battery use by app.
   - Sleep drain.
-- **Automation:**
-  - Thermal mode by power source.
-  - A battery profile schedule.
-  - Battery protection when the laptop stays plugged in for a long time.
+- **Automation:** routines. When the laptop joins or leaves a Wi-Fi network,
+  is plugged in or unplugged, connects a display or a Bluetooth device, drops
+  below a battery level, stays plugged in for days, or at a set time, switch
+  the thermal mode, battery profile and Windows power mode.
 - **BIOS settings:** read and change supported BIOS options.
 - **Settings:** autostart and updates.
 

@@ -122,19 +122,38 @@ export interface DeviceInfo {
   biosDate: string | null
 }
 
-export interface ScheduleEntry {
-  /** 0 = Monday … 6 = Sunday. */
-  days: number[]
-  /** Local time, HH:MM. */
-  time: string
-  profile: BatteryProfile
+export type Trigger =
+  | { kind: 'power'; plugged: boolean }
+  /** Days: 0 = Monday … 6 = Sunday; time: local HH:MM. */
+  | { kind: 'time'; days: number[]; time: string }
+  | { kind: 'wifi'; ssid: string; connected: boolean }
+  | { kind: 'display'; connected: boolean }
+  | { kind: 'bluetooth'; device: string; connected: boolean }
+  | { kind: 'batteryBelow'; percent: number }
+  | { kind: 'longAc'; days: number }
+
+export type TriggerKind = Trigger['kind']
+
+export interface Actions {
+  thermal: ThermalMode | null
+  battery: BatteryProfile | null
+  powerMode: PowerMode | null
 }
 
-export interface Automation {
-  thermal: { enabled: boolean; onAc: ThermalMode | null; onBattery: ThermalMode | null }
-  schedule: { enabled: boolean; entries: ScheduleEntry[] }
-  longAc: { enabled: boolean; days: number; profile: BatteryProfile }
+export interface Routine {
+  id: string
+  name: string
+  enabled: boolean
+  trigger: Trigger
+  actions: Actions
   notify: boolean
+}
+
+export interface RoutineOptions {
+  /** The Wi-Fi network the laptop is on now. */
+  ssid: string | null
+  networks: string[]
+  bluetooth: string[]
 }
 
 export type BiosGroup = 'Keyboard' | 'Power' | 'Devices' | 'Startup'
