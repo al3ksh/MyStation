@@ -2241,7 +2241,7 @@ dependencies = [
 
 [[package]]
 name = "mystation"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2262,7 +2262,7 @@ dependencies = [
 
 [[package]]
 name = "mystation-core"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "chrono",
  "quick-xml",

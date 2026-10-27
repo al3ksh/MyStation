@@ -2,7 +2,7 @@
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "MyStation",
   "mainBinaryName": "mystation",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "identifier": "com.myprecision.app",
   "build": {
     "frontendDist": "../dist",
