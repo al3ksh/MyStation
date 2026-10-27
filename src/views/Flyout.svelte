@@ -81,9 +81,26 @@
     sub?: string
     /** 0–100, drawn as a thin bar under the row; null leaves the track empty. */
     bar?: number | null
+    /** A Bluetooth battery at or under LOW_PCT: value and bar in red. */
+    low?: boolean
   }
 
-  const rows = $derived.by((): Row[] => {
+  // Connected Bluetooth devices sit under the sensors, emptiest first.
+  const devices = $derived(
+    (app?.peripherals ?? []).map(
+      (d): Row => ({
+        icon: KIND_ICON[d.kind],
+        name: d.name,
+        value: `${d.batteryPct}%`,
+        bar: d.batteryPct,
+        low: d.batteryPct <= LOW_PCT,
+      }),
+    ),
+  )
+
+  const rows = $derived.by((): Row[] => [...sensors(), ...devices])
+
+  function sensors(): Row[] {
     if (!t) {
       return [
         { icon: 'cpu', name: 'CPU', value: null, bar: null },
@@ -112,7 +129,7 @@
         bar: mem && mem.totalMb > 0 ? (mem.usedMb / mem.totalMb) * 100 : null,
       },
     ]
-  })
+  }
 </script>
 
 <div class="flyout" bind:this={root}>
@@ -139,9 +156,9 @@
       <h2>Sensors</h2>
       <ul>
         {#each rows as r (r.name)}
-          <li>
+          <li class:low={r.low}>
             <Icon name={r.icon} />
-            <span>{r.name}</span>
+            <span class="name" title={r.name}>{r.name}</span>
             {#if r.value === null}
               <span class="skeleton" aria-label="Loading"></span>
             {:else}
@@ -154,22 +171,6 @@
         {/each}
       </ul>
     </section>
-
-    {#if app?.peripherals.length}
-      <section>
-        <h2>Bluetooth</h2>
-        <ul aria-label="Bluetooth devices">
-          {#each app.peripherals as d (d.name)}
-            <li class:low={d.batteryPct <= LOW_PCT}>
-              <Icon name={KIND_ICON[d.kind]} />
-              <span class="device" title={d.name}>{d.name}</span>
-              <span class="num">{d.batteryPct}%</span>
-              <span class="bar"><span style:width="{Math.min(100, d.batteryPct)}%"></span></span>
-            </li>
-          {/each}
-        </ul>
-      </section>
-    {/if}
 
     <Toasts />
   </div>
@@ -271,7 +272,7 @@
     overflow: hidden;
   }
 
-  .device {
+  .name {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;

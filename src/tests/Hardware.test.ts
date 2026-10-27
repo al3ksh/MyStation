@@ -191,6 +191,20 @@ describe('Hardware', () => {
     expect(screen.getByText(/1 built-in device, like the camera, isn't listed/)).toBeTruthy()
   })
 
+  test('the USB list keeps itself up to date', async () => {
+    vi.useFakeTimers()
+    try {
+      render(Hardware)
+      await vi.advanceTimersByTimeAsync(0)
+      const usbCalls = () => invoke.mock.calls.filter(([c]) => c === 'get_usb').length
+      expect(usbCalls()).toBe(1)
+      await vi.advanceTimersByTimeAsync(5000)
+      expect(usbCalls()).toBe(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   test('refresh rereads and a failed refresh keeps the old data', async () => {
     render(Hardware)
     const refresh = await screen.findByRole('button', { name: /Refresh/ })

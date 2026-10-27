@@ -6,11 +6,12 @@ no section here.
 
 ## Unreleased
 
-- The flyout lists connected Bluetooth devices with their battery level (mouse,
-  keyboard, headphones and so on), and a notification says when one drops to
-  15%.
+- Connected Bluetooth devices show their battery level under the flyout's
+  sensors (mouse, keyboard, headphones and so on), and a notification says when
+  one drops to 15%.
 - Hardware → USB shows the speed each device runs at, and points out a USB 3
-  device stuck at USB 2 speed: try another cable, or a USB 3 port.
+  device stuck at USB 2 speed: try another cable, or a USB 3 port. The list
+  updates by itself as devices are plugged in and out.
 - The Startup card leads with the time to the desktop and says it's from the
   last full restart. It also shows the firmware time Task Manager calls BIOS
   time, and explains that with fast startup on, a shutdown and power-on isn't

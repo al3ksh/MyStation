@@ -193,7 +193,7 @@ describe('Flyout', () => {
     expect(await screen.findByText('cctk exited with code 58')).toBeTruthy()
   })
 
-  test('connected Bluetooth devices show their battery, a low one flagged', async () => {
+  test('connected Bluetooth devices join the sensor rows, a low one flagged', async () => {
     invoke.mockResolvedValue(
       appState({
         peripherals: [
@@ -203,23 +203,20 @@ describe('Flyout', () => {
       }),
     )
     render(Flyout)
-    const list = await screen.findByRole('list', { name: 'Bluetooth devices' })
-    const items = [...list.querySelectorAll('li')]
-    expect(items.map((li) => li.textContent?.replace(/\s+/g, ' ').trim())).toEqual([
-      expect.stringContaining('Buds3 Pro'),
-      expect.stringContaining('MX Anywhere 3S'),
-    ])
-    expect(items[0].textContent).toContain('12%')
-    expect(items[1].textContent).toContain('30%')
-    expect(items[0].classList.contains('low')).toBe(true)
-    expect(items[1].classList.contains('low')).toBe(false)
+    const buds = (await screen.findByText('Buds3 Pro')).closest('li')!
+    const mouse = screen.getByText('MX Anywhere 3S').closest('li')!
+    expect(buds.parentElement).toBe(screen.getByText('CPU').closest('ul'))
+    expect(buds.textContent).toContain('12%')
+    expect(mouse.textContent).toContain('30%')
+    expect(buds.classList.contains('low')).toBe(true)
+    expect(mouse.classList.contains('low')).toBe(false)
+    expect(screen.queryByRole('heading', { name: 'Bluetooth' })).toBeNull()
   })
 
-  test('no Bluetooth section without a connected device that reports a battery', async () => {
-    invoke.mockResolvedValue(appState())
-    render(Flyout)
-    await loaded()
-    expect(screen.queryByRole('list', { name: 'Bluetooth devices' })).toBeNull()
+  test('every peripheral kind has a glyph', async () => {
+    const { GLYPH } = await import('../lib/icons')
+    for (const k of ['mouse', 'keyboard', 'headphones', 'speaker', 'controller', 'pen', 'phone', 'bluetooth'])
+      expect(GLYPH[k as keyof typeof GLYPH], k).toBeTruthy()
   })
 
   test('gpu Asleep renders "Asleep"', async () => {

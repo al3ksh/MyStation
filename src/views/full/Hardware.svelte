@@ -26,7 +26,8 @@
   let boot = $state<BootReport | null>(bootCache)
   let storageError = $state<string | null>(null)
   let bootError = $state<string | null>(null)
-  // Devices come and go, so they are read again every time the page opens.
+  // Devices come and go, so the list is reread every few seconds while the page is open.
+  const USB_POLL_MS = 5000
   let usb = $state<UsbReport | null>(null)
   let loading = $state(false)
 
@@ -52,6 +53,11 @@
   onMount(() => {
     if (!storage || !boot) load()
     else loadUsb()
+    // Quietly: a failed reread keeps the last list rather than toasting every few seconds.
+    const timer = setInterval(() => {
+      if (!document.hidden) api.getUsb().then((u) => (usb = u), () => {})
+    }, USB_POLL_MS)
+    return () => clearInterval(timer)
   })
 
   function bytes(b: number): string {
@@ -265,7 +271,7 @@
         {/each}
       </div>
       <p class="secondary hint">
-        To measure a device, plug it in while on battery with this window open, wait a minute, then refresh.
+        To measure a device, plug it in while on battery with this window open and wait a minute.
         {#if usb.builtIn}{builtIn(usb.builtIn)}{/if}
       </p>
     {:else}

@@ -32,6 +32,14 @@ export const GLYPH = {
   add: '\uE710',
   delete: '\uE74D',
   drive: '\uEDA2',
+  bluetooth: '\uE702',
+  mouse: '\uE962',
+  keyboard: '\uE765',
+  headphones: '\uE7F6',
+  speaker: '\uE7F5',
+  controller: '\uE7FC',
+  pen: '\uEDC6',
+  phone: '\uE8EA',
 } as const
 
 export type IconName = keyof typeof GLYPH
