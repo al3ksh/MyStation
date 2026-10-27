@@ -116,7 +116,7 @@
     return n === 1 ? "1 built-in device, like the camera, isn't listed." : `${n} built-in devices, like the camera, aren't listed.`
   }
 
-  const slowest = $derived(boot ? Math.max(1, ...boot.boots.map((b) => b.totalMs)) : 1)
+  const slowest = $derived(boot ? Math.max(1, ...boot.boots.map((b) => b.mainPathMs)) : 1)
 </script>
 
 <div class="stack">
@@ -188,26 +188,38 @@
       <div class="card">
         {#if last}
           <div class="head">
-            <span class="big">{secs(last.totalMs)}</span>
-            <span class="secondary">last boot, {date(last.start, true)}</span>
+            <span class="big">{secs(last.mainPathMs)}</span>
+            <span class="secondary">to the desktop, last full restart {date(last.start, true)}</span>
           </div>
           <p class="secondary">
-            {secs(last.mainPathMs)} to the desktop, then {secs(last.postBootMs)} for {num(last.startupApps)} startup apps
-            and services to settle.
+            Then {secs(last.postBootMs)} for {num(last.startupApps)} startup apps and services to settle, {secs(last.totalMs)}
+            in all.
           </p>
           {#if boot.boots.length > 1}
             <ul class="boots" aria-label="Recent boots">
               {#each boot.boots as b (b.start)}
                 <li>
                   <span class="secondary">{date(b.start)}</span>
-                  <span class="bar"><span style:width="{(b.totalMs / slowest) * 100}%"></span></span>
-                  <span>{secs(b.totalMs)}</span>
+                  <span class="bar"><span style:width="{(b.mainPathMs / slowest) * 100}%"></span></span>
+                  <span>{secs(b.mainPathMs)}</span>
                 </li>
               {/each}
             </ul>
           {/if}
         {:else}
           <p class="secondary">No full boots recorded yet. Waking from sleep or hibernation doesn't count as a boot.</p>
+        {/if}
+        {#if boot.firmwareMs != null}
+          <p class="secondary">
+            Firmware took {secs(boot.firmwareMs)} at the last power-on, before Windows started. Task Manager calls this BIOS
+            time.
+          </p>
+        {/if}
+        {#if boot.fastStartup}
+          <p class="secondary">
+            Fast startup is on, so shutting down and turning on resumes Windows rather than booting it, and Windows doesn't
+            time that. Only restarts are measured.
+          </p>
         {/if}
       </div>
 

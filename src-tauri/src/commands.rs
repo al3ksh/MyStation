@@ -236,6 +236,7 @@ pub fn get_storage() -> StorageReport {
 }
 
 const BOOT_CHANNEL: &str = "Microsoft-Windows-Diagnostics-Performance/Operational";
+const SESSION_POWER: &str = r"SYSTEM\CurrentControlSet\Control\Session Manager\Power";
 /// Boots shown and culprits counted over.
 const BOOTS_KEPT: usize = 10;
 
@@ -245,7 +246,11 @@ pub fn get_boot() -> Result<boot::BootReport, String> {
     let ids = boot::EVENT_IDS.map(|id| format!("EventID={id}")).join(" or ");
     let events = platform::event_log::query(BOOT_CHANNEL, &format!("*[System[({ids})]]"), 500)
         .map_err(|_| "Startup history needs administrator rights.".to_string())?;
-    Ok(boot::report(&events, BOOTS_KEPT))
+    Ok(boot::BootReport {
+        firmware_ms: platform::registry::hklm_dword(SESSION_POWER, "FwPOSTTime").filter(|&ms| ms > 0).map(u64::from),
+        fast_startup: platform::registry::hklm_dword(SESSION_POWER, "HiberbootEnabled") == Some(1),
+        ..boot::report(&events, BOOTS_KEPT)
+    })
 }
 
 const BATTERY_ADMIN: &str = "Battery history needs administrator rights.";

@@ -51,6 +51,11 @@ pub struct BootReport {
     pub boots: Vec<BootRecord>,
     /// Worst first by total delay.
     pub culprits: Vec<Culprit>,
+    /// Firmware (POST) time of the latest power-on, Task Manager's "BIOS time".
+    pub firmware_ms: Option<u64>,
+    /// With fast startup on, shutting down hibernates the kernel and the next power-on
+    /// resumes it; Windows logs no boot event for that.
+    pub fast_startup: bool,
 }
 
 /// One event: its ID, creation time and `EventData` fields.
@@ -170,7 +175,7 @@ pub fn report(events: &[String], max_boots: usize) -> BootReport {
         })
         .collect();
     culprits.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.name.cmp(&b.1.name)));
-    BootReport { boots, culprits: culprits.into_iter().take(MAX_CULPRITS).map(|(_, c)| c).collect() }
+    BootReport { boots, culprits: culprits.into_iter().take(MAX_CULPRITS).map(|(_, c)| c).collect(), ..Default::default() }
 }
 
 #[cfg(test)]

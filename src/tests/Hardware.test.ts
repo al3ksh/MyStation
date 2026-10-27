@@ -37,6 +37,8 @@ const BOOT: BootReport = {
     { start: '2026-10-01T19:41:06Z', totalMs: 51577, mainPathMs: 26077, postBootMs: 25500, startupApps: 15 },
   ],
   culprits: [{ name: 'WavesSysSvc Service Application', kind: 'app', boots: 2, avgDelayMs: 12033 }],
+  firmwareMs: 6374,
+  fastStartup: false,
 }
 
 let storage: StorageReport
@@ -107,9 +109,11 @@ describe('Hardware', () => {
 
   test('shows boot times and what slowed them down', async () => {
     render(Hardware)
-    expect(await screen.findByText(/last boot, Oct 5/)).toBeTruthy()
-    expect(screen.getAllByText('30.0 s')).toHaveLength(2)
-    expect(screen.getByText(/18.0 s to the desktop, then 12.0 s for 15 startup apps/)).toBeTruthy()
+    expect(await screen.findByText(/to the desktop, last full restart Oct 5/)).toBeTruthy()
+    expect(screen.getAllByText('18.0 s')).toHaveLength(2)
+    expect(screen.getByText(/Then 12.0 s for 15 startup apps and services to settle, 30.0 s in all/)).toBeTruthy()
+    expect(screen.getByText(/Firmware took 6.4 s at the last power-on/)).toBeTruthy()
+    expect(screen.queryByText(/Fast startup is on/)).toBeNull()
     expect(screen.getAllByRole('listitem')).toHaveLength(2)
     expect(screen.getByText('WavesSysSvc Service Application')).toBeTruthy()
     expect(screen.getByText('App · slowed 2 of the last 2 boots')).toBeTruthy()
@@ -120,9 +124,16 @@ describe('Hardware', () => {
   })
 
   test('no boots recorded yet', async () => {
-    boot = { boots: [], culprits: [] }
+    boot = { boots: [], culprits: [], firmwareMs: null, fastStartup: false }
     render(Hardware)
     expect(await screen.findByText(/No full boots recorded yet/)).toBeTruthy()
+    expect(screen.queryByText(/Firmware took/)).toBeNull()
+  })
+
+  test('explains that fast startup boots are not timed', async () => {
+    boot = { ...BOOT, fastStartup: true }
+    render(Hardware)
+    expect(await screen.findByText(/Fast startup is on/)).toBeTruthy()
   })
 
   test('a boot log error leaves the drive card working', async () => {
@@ -187,7 +198,7 @@ describe('Hardware', () => {
     await fireEvent.click(refresh)
     await screen.findByRole('button', { name: /Refresh/ })
     expect(invoke.mock.calls.filter(([c]) => c === 'get_boot')).toHaveLength(2)
-    expect(screen.getByText(/last boot/)).toBeTruthy()
+    expect(screen.getByText(/last full restart/)).toBeTruthy()
     expect(toasts.items.map((t) => t.text)).toEqual(['Boom'])
   })
 })

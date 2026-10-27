@@ -198,6 +198,10 @@ export interface BootReport {
   boots: BootRecord[]
   /** Worst first. */
   culprits: Culprit[]
+  /** Firmware (POST) time of the latest power-on, Task Manager's "BIOS time". */
+  firmwareMs: number | null
+  /** Shutdowns resume a hibernated kernel, and Windows doesn't time those boots. */
+  fastStartup: boolean
 }
 
 /** Which GPU an app runs on; `auto` leaves it to Windows. */
