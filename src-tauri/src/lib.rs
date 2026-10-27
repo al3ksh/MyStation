@@ -46,6 +46,7 @@ pub fn run() {
             commands::get_sleep,
             commands::get_usb,
             commands::get_displays,
+            commands::get_spec,
             commands::set_gpu_choice,
             commands::pick_app,
         ])

@@ -11,6 +11,7 @@ pub mod history;
 pub mod tray_icon;
 pub mod autostart;
 pub mod smbios;
+pub mod spec;
 pub mod automation;
 pub mod bios;
 pub mod boot;

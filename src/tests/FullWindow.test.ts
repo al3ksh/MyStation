@@ -164,7 +164,7 @@ describe('FullWindow', () => {
   test('navigation lists every section', async () => {
     route(appState())
     render(FullWindow)
-    for (const name of ['Overview', 'Battery', 'Performance', 'Sensors', 'Settings']) {
+    for (const name of ['Overview', 'Battery', 'Performance', 'Sensors', 'Spec', 'Settings']) {
       expect(screen.getByRole('button', { name })).toBeTruthy()
     }
   })

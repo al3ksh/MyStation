@@ -1,7 +1,7 @@
 //! Reading values from HKEY_LOCAL_MACHINE.
 
 use windows::Win32::Foundation::ERROR_SUCCESS;
-use windows::Win32::System::Registry::{HKEY_LOCAL_MACHINE, RRF_RT_REG_BINARY, RRF_RT_REG_DWORD, RRF_RT_REG_SZ, RegGetValueW};
+use windows::Win32::System::Registry::{HKEY_LOCAL_MACHINE, RRF_RT_REG_BINARY, RRF_RT_REG_DWORD, RRF_RT_REG_QWORD, RRF_RT_REG_SZ, RegGetValueW};
 use windows::core::HSTRING;
 
 /// A `REG_SZ` value under HKLM, or `None` when the key or value is missing.
@@ -27,6 +27,18 @@ pub fn hklm_dword(key: &str, value: &str) -> Option<u32> {
     // SAFETY: `data` and `len` are live and sized for the REG_DWORD that RRF_RT_REG_DWORD restricts to.
     let read = unsafe {
         RegGetValueW(HKEY_LOCAL_MACHINE, &key, &value, RRF_RT_REG_DWORD, None, Some((&raw mut data).cast()), Some(&mut len))
+    };
+    (read == ERROR_SUCCESS).then_some(data)
+}
+
+/// A `REG_QWORD` value under HKLM, or `None` when the key or value is missing.
+pub fn hklm_qword(key: &str, value: &str) -> Option<u64> {
+    let (key, value) = (HSTRING::from(key), HSTRING::from(value));
+    let mut data = 0u64;
+    let mut len = size_of::<u64>() as u32;
+    // SAFETY: `data` and `len` are live and sized for the REG_QWORD that RRF_RT_REG_QWORD restricts to.
+    let read = unsafe {
+        RegGetValueW(HKEY_LOCAL_MACHINE, &key, &value, RRF_RT_REG_QWORD, None, Some((&raw mut data).cast()), Some(&mut len))
     };
     (read == ERROR_SUCCESS).then_some(data)
 }
@@ -61,6 +73,7 @@ mod tests {
         assert_eq!(hklm_string(r"SOFTWARE\MyStation-test-missing", "x"), None);
         assert_eq!(hklm_dword(r"SOFTWARE\MyStation-test-missing", "x"), None);
         assert_eq!(hklm_binary(r"SOFTWARE\MyStation-test-missing", "x"), None);
+        assert_eq!(hklm_qword(r"SOFTWARE\MyStation-test-missing", "x"), None);
     }
 
     #[test]

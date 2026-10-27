@@ -290,6 +290,12 @@ pub fn get_displays() -> Vec<display::Display> {
     display::report(platform::display::displays())
 }
 
+/// What the laptop has and supports, read from the device itself.
+#[tauri::command(async)]
+pub fn get_spec() -> mystation_core::spec::Spec {
+    platform::spec::spec(device_info())
+}
+
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GpuApp {

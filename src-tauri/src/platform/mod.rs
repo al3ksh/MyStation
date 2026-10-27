@@ -15,6 +15,7 @@ pub mod powercfg;
 pub mod registry;
 mod shell;
 mod smbios;
+pub mod spec;
 pub mod storage;
 mod system;
 pub mod usb;

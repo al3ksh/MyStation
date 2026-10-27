@@ -295,3 +295,49 @@ export interface DisplayInfo {
   /** A sharper or faster mode the monitor supports; `setting` when Windows offers it, `link` when the connection can't carry it. */
   upgrade: { mode: DisplayMode; limit: 'setting' | 'link' } | null
 }
+
+/** A PCIe link: generation 3 is PCIe 3.0. */
+export interface PciLink {
+  generation: number
+  lanes: number
+}
+
+export interface MemoryModule {
+  slot: string
+  sizeMb: number
+  kind: string | null
+  /** Rated speed, MT/s. */
+  speedMts: number | null
+  /** The speed it runs at, MT/s. */
+  configuredMts: number | null
+  maker: string | null
+  part: string | null
+}
+
+/** What the laptop has and supports, read from the device itself. Anything may be missing. */
+export interface Spec {
+  model: string | null
+  biosVersion: string | null
+  biosDate: string | null
+  cpu: {
+    name: string
+    cores: number
+    threads: number
+    l2Kb: number
+    l3Kb: number
+    features: string[]
+    virtualization: boolean | null
+  } | null
+  memory: { maxGb: number | null; slots: number | null; modules: MemoryModule[] }
+  graphics: { name: string; driver: string | null; vramMb: number | null; link: PciLink | null }[]
+  storage: { name: string; sizeGb: number | null; link: PciLink | null }[]
+  panel: { maker: string | null; width: number; height: number; maxHz: number; diagonalIn: number | null } | null
+  wifi: string | null
+  /** Like "5.2". */
+  bluetooth: string | null
+  thunderbolt: string | null
+  /** "2.0" or "1.2". */
+  tpm: string | null
+  secureBoot: boolean | null
+  fingerprint: string | null
+}

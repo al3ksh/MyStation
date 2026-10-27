@@ -14,6 +14,7 @@
   import Automation from './full/Automation.svelte'
   import Bios from './full/Bios.svelte'
   import Hardware from './full/Hardware.svelte'
+  import Spec from './full/Spec.svelte'
   import Battery from './full/Battery.svelte'
   import Overview from './full/Overview.svelte'
   import Performance from './full/Performance.svelte'
@@ -21,7 +22,7 @@
   import Sensors from './full/Sensors.svelte'
   import Settings from './full/Settings.svelte'
 
-  type Section = 'Overview' | 'Battery' | 'Power' | 'Performance' | 'Sensors' | 'Automation' | 'Hardware' | 'BIOS' | 'Settings'
+  type Section = 'Overview' | 'Battery' | 'Power' | 'Performance' | 'Sensors' | 'Automation' | 'Hardware' | 'Spec' | 'BIOS' | 'Settings'
   const SECTIONS: { name: Section; icon: IconName }[] = [
     { name: 'Overview', icon: 'overview' },
     { name: 'Battery', icon: 'battery' },
@@ -30,6 +31,7 @@
     { name: 'Sensors', icon: 'chart' },
     { name: 'Automation', icon: 'automation' },
     { name: 'Hardware', icon: 'drive' },
+    { name: 'Spec', icon: 'laptop' },
     { name: 'BIOS', icon: 'bios' },
   ]
 
@@ -127,6 +129,8 @@
       <Automation />
     {:else if section === 'Hardware'}
       <Hardware />
+    {:else if section === 'Spec'}
+      <Spec />
     {:else if section === 'BIOS'}
       <Bios />
     {:else}

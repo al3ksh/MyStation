@@ -6,6 +6,10 @@ no section here.
 
 ## Unreleased
 
+- A Spec page lists what the laptop has and supports: the processor, memory
+  slots and modules, graphics and storage with their PCIe links, the screen,
+  Wi-Fi, Bluetooth version, Thunderbolt, TPM, Secure Boot and the fingerprint
+  reader. All of it is read from the laptop itself.
 - Connected Bluetooth devices show their battery level under the flyout's
   sensors (mouse, keyboard, headphones and so on), and a notification says when
   one drops to 15%.
