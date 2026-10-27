@@ -135,7 +135,7 @@
         <div class="card">
           <dl>
             <dt>Screen</dt>
-            <dd>{join([s.panel.diagonalIn && `${s.panel.diagonalIn}″`, `${s.panel.width} × ${s.panel.height}`, `up to ${s.panel.maxHz} Hz`])}</dd>
+            <dd>{join([s.panel.diagonalIn != null && `${s.panel.diagonalIn}″`, `${s.panel.width} × ${s.panel.height}`, `up to ${s.panel.maxHz} Hz`])}</dd>
             {#if s.panel.maker}<dt>Panel</dt><dd>{s.panel.maker}</dd>{/if}
           </dl>
         </div>
