@@ -13,6 +13,7 @@ use mystation_core::nvme;
 use mystation_core::profile::BatteryProfile;
 use mystation_core::sleep;
 use mystation_core::usb;
+use mystation_core::display;
 use tauri::{AppHandle, Emitter, State};
 
 use crate::platform;
@@ -281,6 +282,12 @@ pub fn get_usb(core: State<'_, Core>) -> usb::UsbReport {
     let devices = platform::usb::devices();
     let samples = core.history.lock_ok().range(30, Local::now().timestamp_millis());
     usb::report(devices, &samples, &mut core.usb_draw.lock_ok())
+}
+
+/// Connected displays, and whether each could run sharper or faster than it does.
+#[tauri::command(async)]
+pub fn get_displays() -> Vec<display::Display> {
+    display::report(platform::display::displays())
 }
 
 #[derive(serde::Serialize)]

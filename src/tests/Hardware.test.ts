@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/svelte'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
-import type { BootReport, DriveReport, SmartLog, StorageReport, UsbReport } from '../lib/types'
+import type { BootReport, DisplayInfo, DriveReport, SmartLog, StorageReport, UsbReport } from '../lib/types'
 
 const invoke = vi.fn()
 vi.mock('@tauri-apps/api/core', () => ({ invoke: (...a: unknown[]) => invoke(...a) }))
@@ -44,11 +44,13 @@ const BOOT: BootReport = {
 let storage: StorageReport
 let boot: BootReport | Error
 let usb: UsbReport
+let displays: DisplayInfo[]
 
 function route() {
   invoke.mockImplementation(async (cmd: string) => {
     if (cmd === 'get_storage') return storage
     if (cmd === 'get_usb') return usb
+    if (cmd === 'get_displays') return displays
     if (cmd === 'get_boot') {
       if (boot instanceof Error) throw boot.message
       return boot
@@ -65,6 +67,7 @@ beforeEach(() => {
   storage = { drives: [drive()], volume: [1e12, 250e9] }
   boot = BOOT
   usb = { devices: [], builtIn: 0 }
+  displays = []
   route()
 })
 
@@ -191,6 +194,61 @@ describe('Hardware', () => {
     expect(screen.getByText(/1 built-in device, like the camera, isn't listed/)).toBeTruthy()
   })
 
+  test('lists displays with the mode they run at', async () => {
+    displays = [
+      { name: null, connection: 'internal', current: { width: 1920, height: 1200, hz: 60 }, upgrade: null },
+      { name: 'DELL U2723QE', connection: 'hdmi', current: { width: 3840, height: 2160, hz: 59.94 }, upgrade: null },
+    ]
+    render(Hardware)
+    expect(await screen.findByText('Built-in display')).toBeTruthy()
+    expect(screen.getByText('1920 × 1200 · 60 Hz · Built-in')).toBeTruthy()
+    expect(screen.getByText('DELL U2723QE')).toBeTruthy()
+    expect(screen.getByText('3840 × 2160 · 60 Hz · HDMI')).toBeTruthy()
+  })
+
+  test('an external display without a name is not called built-in', async () => {
+    displays = [{ name: null, connection: 'vga', current: { width: 1024, height: 768, hz: 60 }, upgrade: null }]
+    render(Hardware)
+    expect(await screen.findByText('External display')).toBeTruthy()
+  })
+
+  test('says when the cable holds a display back', async () => {
+    displays = [
+      {
+        name: 'LG HDR 4K',
+        connection: 'hdmi',
+        current: { width: 3840, height: 2160, hz: 30 },
+        upgrade: { mode: { width: 3840, height: 2160, hz: 60 }, limit: 'link' },
+      },
+    ]
+    render(Hardware)
+    expect(await screen.findByText(
+      "Runs at 30 Hz; it supports 60 Hz. The cable or adapter can't carry more — use one rated for 3840 × 2160 at 60 Hz.",
+    )).toBeTruthy()
+  })
+
+  test('says when Windows could run a display faster', async () => {
+    displays = [
+      {
+        name: 'Gaming',
+        connection: 'displayPort',
+        current: { width: 2560, height: 1440, hz: 60 },
+        upgrade: { mode: { width: 2560, height: 1440, hz: 165 }, limit: 'setting' },
+      },
+      {
+        name: 'Office',
+        connection: 'usb',
+        current: { width: 1920, height: 1080, hz: 60 },
+        upgrade: { mode: { width: 2560, height: 1440, hz: 60 }, limit: 'setting' },
+      },
+    ]
+    render(Hardware)
+    expect(await screen.findByText('2560 × 1440 · 60 Hz · DisplayPort')).toBeTruthy()
+    expect(screen.getByText('Supports 165 Hz. Pick it in Settings → Display → Advanced display.')).toBeTruthy()
+    expect(screen.getByText('1920 × 1080 · 60 Hz · USB (DisplayLink)')).toBeTruthy()
+    expect(screen.getByText('Supports 2560 × 1440. Pick it in Settings → Display.')).toBeTruthy()
+  })
+
   test('the USB list keeps itself up to date', async () => {
     vi.useFakeTimers()
     try {
@@ -200,6 +258,7 @@ describe('Hardware', () => {
       expect(usbCalls()).toBe(1)
       await vi.advanceTimersByTimeAsync(5000)
       expect(usbCalls()).toBe(2)
+      expect(invoke.mock.calls.filter(([c]) => c === 'get_displays')).toHaveLength(2)
     } finally {
       vi.useRealTimers()
     }

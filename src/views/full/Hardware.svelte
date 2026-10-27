@@ -1,5 +1,5 @@
 <script lang="ts" module>
-  import type { BootReport, Culprit, DriveReport, SmartLog, StorageReport, UsbDevice, UsbReport, UsbSpeed } from '../../lib/types'
+  import type { BootReport, Culprit, DisplayConnection, DisplayInfo, DisplayMode, DriveReport, SmartLog, StorageReport, UsbDevice, UsbReport, UsbSpeed } from '../../lib/types'
 
   // Both reads touch the disk and the event log; keep them across section switches.
   let storageCache: StorageReport | null = null
@@ -29,15 +29,18 @@
   // Devices come and go, so the list is reread every few seconds while the page is open.
   const USB_POLL_MS = 5000
   let usb = $state<UsbReport | null>(null)
+  let displays = $state<DisplayInfo[] | null>(null)
   let loading = $state(false)
 
   const loadUsb = () => api.getUsb().then((u) => (usb = u), (e) => toasts.push(errorText(e)))
+  const loadDisplays = () => api.getDisplays().then((d) => (displays = d), () => (displays ??= []))
 
   async function load() {
     loading = true
     storageError = bootError = null
     await Promise.all([
       loadUsb(),
+      loadDisplays(),
       api.getStorage().then(
         (s) => (storage = storageCache = s),
         (e) => (storage ? toasts.push(errorText(e)) : (storageError = errorText(e))),
@@ -52,10 +55,15 @@
 
   onMount(() => {
     if (!storage || !boot) load()
-    else loadUsb()
+    else {
+      loadUsb()
+      loadDisplays()
+    }
     // Quietly: a failed reread keeps the last list rather than toasting every few seconds.
     const timer = setInterval(() => {
-      if (!document.hidden) api.getUsb().then((u) => (usb = u), () => {})
+      if (document.hidden) return
+      api.getUsb().then((u) => (usb = u), () => {})
+      api.getDisplays().then((d) => (displays = d), () => {})
     }, USB_POLL_MS)
     return () => clearInterval(timer)
   })
@@ -120,6 +128,36 @@
 
   function builtIn(n: number): string {
     return n === 1 ? "1 built-in device, like the camera, isn't listed." : `${n} built-in devices, like the camera, aren't listed.`
+  }
+
+  const CONNECTION: Record<DisplayConnection, string> = {
+    internal: 'Built-in',
+    displayPort: 'DisplayPort',
+    hdmi: 'HDMI',
+    dvi: 'DVI',
+    vga: 'VGA',
+    usb: 'USB (DisplayLink)',
+    wireless: 'Wireless',
+    other: 'Other',
+  }
+
+  const size = (m: DisplayMode) => `${m.width} × ${m.height}`
+  const rate = (m: DisplayMode) => `${Math.round(m.hz)} Hz`
+
+  const displayDetail = (d: DisplayInfo) => [size(d.current), rate(d.current), CONNECTION[d.connection]].join(' · ')
+
+  function displayAdvice(d: DisplayInfo): string | null {
+    if (!d.upgrade) return null
+    const { mode, limit } = d.upgrade
+    // Same size: only the refresh rate is held back.
+    const sharper = mode.width * mode.height > d.current.width * d.current.height
+    if (limit === 'link') {
+      const what = sharper ? `${size(d.current)}; it supports ${size(mode)}` : `${rate(d.current)}; it supports ${rate(mode)}`
+      return `Runs at ${what}. The cable or adapter can't carry more — use one rated for ${size(mode)} at ${rate(mode)}.`
+    }
+    return sharper
+      ? `Supports ${size(mode)}. Pick it in Settings → Display.`
+      : `Supports ${rate(mode)}. Pick it in Settings → Display → Advanced display.`
   }
 
   const slowest = $derived(boot ? Math.max(1, ...boot.boots.map((b) => b.mainPathMs)) : 1)
@@ -248,6 +286,28 @@
       </button>
     {:else if bootError}
       <div class="card"><p>{bootError}</p></div>
+    {:else}
+      <div class="state" role="status"><span class="spinner"></span></div>
+    {/if}
+  </section>
+
+  <section>
+    <h2>Displays</h2>
+    {#if displays}
+      <div class="card list">
+        {#each displays as d, i (i)}
+          {@const advice = displayAdvice(d)}
+          <div class="row">
+            <div class="text">
+              <span>{d.name ?? (d.connection === 'internal' ? 'Built-in display' : 'External display')}</span>
+              <span class="secondary">{displayDetail(d)}</span>
+              {#if advice}<span class="warn">{advice}</span>{/if}
+            </div>
+          </div>
+        {:else}
+          <div class="row"><span class="secondary">No display information.</span></div>
+        {/each}
+      </div>
     {:else}
       <div class="state" role="status"><span class="spinner"></span></div>
     {/if}

@@ -278,3 +278,20 @@ export interface UsbReport {
   devices: UsbDevice[]
   builtIn: number
 }
+
+export interface DisplayMode {
+  width: number
+  height: number
+  hz: number
+}
+
+export type DisplayConnection = 'internal' | 'displayPort' | 'hdmi' | 'dvi' | 'vga' | 'usb' | 'wireless' | 'other'
+
+export interface DisplayInfo {
+  /** The monitor's own name from its EDID, else what Windows calls it. */
+  name: string | null
+  connection: DisplayConnection
+  current: DisplayMode
+  /** A sharper or faster mode the monitor supports; `setting` when Windows offers it, `link` when the connection can't carry it. */
+  upgrade: { mode: DisplayMode; limit: 'setting' | 'link' } | null
+}

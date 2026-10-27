@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { AppState, Automation, BatteryProfile, BiosSetting, BootReport, DeviceInfo, DgpuReport, EnergyReport, GpuChoice, HealthEntry, HistorySample, SleepReport, StorageReport, Telemetry, ThermalMode, UsbReport } from './types'
+import type { AppState, Automation, BatteryProfile, BiosSetting, BootReport, DeviceInfo, DgpuReport, DisplayInfo, EnergyReport, GpuChoice, HealthEntry, HistorySample, SleepReport, StorageReport, Telemetry, ThermalMode, UsbReport } from './types'
 
 export const api = {
   getState: () => invoke<AppState>('get_state'),
@@ -24,6 +24,7 @@ export const api = {
   /** Needs administrator rights to read the boot log. */
   getBoot: () => invoke<BootReport>('get_boot'),
   getUsb: () => invoke<UsbReport>('get_usb'),
+  getDisplays: () => invoke<DisplayInfo[]>('get_displays'),
   /** Null on machines with integrated graphics only. */
   getDgpu: () => invoke<DgpuReport | null>('get_dgpu'),
   /** Applies the next time the app starts. */

@@ -3,6 +3,7 @@
 mod cctk_exec;
 pub mod console;
 mod cpu_times;
+pub mod display;
 mod energy_meter;
 pub mod event_log;
 pub mod file_dialog;

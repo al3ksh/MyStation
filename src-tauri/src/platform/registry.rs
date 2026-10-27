@@ -1,7 +1,7 @@
 //! Reading values from HKEY_LOCAL_MACHINE.
 
 use windows::Win32::Foundation::ERROR_SUCCESS;
-use windows::Win32::System::Registry::{HKEY_LOCAL_MACHINE, RRF_RT_REG_DWORD, RRF_RT_REG_SZ, RegGetValueW};
+use windows::Win32::System::Registry::{HKEY_LOCAL_MACHINE, RRF_RT_REG_BINARY, RRF_RT_REG_DWORD, RRF_RT_REG_SZ, RegGetValueW};
 use windows::core::HSTRING;
 
 /// A `REG_SZ` value under HKLM, or `None` when the key or value is missing.
@@ -31,6 +31,21 @@ pub fn hklm_dword(key: &str, value: &str) -> Option<u32> {
     (read == ERROR_SUCCESS).then_some(data)
 }
 
+/// A `REG_BINARY` value under HKLM of up to 4 KiB, or `None` when the key or value is missing.
+pub fn hklm_binary(key: &str, value: &str) -> Option<Vec<u8>> {
+    let (key, value) = (HSTRING::from(key), HSTRING::from(value));
+    let mut buf = vec![0u8; 4096];
+    let mut len = buf.len() as u32;
+    // SAFETY: `buf` and `len` are live and `len` is the buffer's size; RRF_RT_REG_BINARY restricts the type.
+    let read = unsafe {
+        RegGetValueW(HKEY_LOCAL_MACHINE, &key, &value, RRF_RT_REG_BINARY, None, Some(buf.as_mut_ptr().cast()), Some(&mut len))
+    };
+    (read == ERROR_SUCCESS).then(|| {
+        buf.truncate(len as usize);
+        buf
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -45,11 +60,19 @@ mod tests {
     fn missing_key_is_none() {
         assert_eq!(hklm_string(r"SOFTWARE\MyStation-test-missing", "x"), None);
         assert_eq!(hklm_dword(r"SOFTWARE\MyStation-test-missing", "x"), None);
+        assert_eq!(hklm_binary(r"SOFTWARE\MyStation-test-missing", "x"), None);
     }
 
     #[test]
     fn reads_a_dword() {
         let major = hklm_dword(r"SOFTWARE\Microsoft\Windows NT\CurrentVersion", "CurrentMajorVersionNumber");
         assert_eq!(major, Some(10));
+    }
+
+    #[test]
+    fn reads_a_binary_value() {
+        // Windows keeps its product key blob here on every install.
+        let id = hklm_binary(r"SOFTWARE\Microsoft\Windows NT\CurrentVersion", "DigitalProductId").unwrap();
+        assert!(id.len() > 100, "{}", id.len());
     }
 }
