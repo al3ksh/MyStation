@@ -18,6 +18,52 @@ pub struct RawUsbDevice {
     pub removable: bool,
     /// Selectively suspended right now rather than fully powered.
     pub suspended: bool,
+    /// How it's connected, from the hub it's plugged into.
+    pub link: Option<UsbLink>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum UsbSpeed {
+    /// 1.5 Mbps
+    Low,
+    /// 12 Mbps
+    Full,
+    /// 480 Mbps, USB 2
+    High,
+    /// 5 Gbps, USB 3
+    Super,
+    /// 10 Gbps or more
+    SuperPlus,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UsbLink {
+    /// The speed it's running at.
+    pub speed: UsbSpeed,
+    /// The device can run at SuperSpeed, so a slower link is held back by something.
+    pub superspeed_capable: bool,
+    /// The port it's in has a USB 3 lane.
+    pub superspeed_port: bool,
+}
+
+/// What keeps a USB 3 device at USB 2 speed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Bottleneck {
+    /// The port could do USB 3, so the cable (or an adapter) only carries USB 2.
+    Cable,
+    /// Plugged into a USB 2 port or hub.
+    Port,
+}
+
+impl UsbLink {
+    pub fn bottleneck(&self) -> Option<Bottleneck> {
+        if !self.superspeed_capable || self.speed >= UsbSpeed::Super {
+            return None;
+        }
+        Some(if self.superspeed_port { Bottleneck::Cable } else { Bottleneck::Port })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -28,6 +74,9 @@ pub struct UsbDevice {
     pub suspended: bool,
     /// Extra battery draw since it was plugged in, in watts.
     pub draw_w: Option<f32>,
+    pub speed: Option<UsbSpeed>,
+    /// Set when it could run faster than it is.
+    pub bottleneck: Option<Bottleneck>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
@@ -82,7 +131,14 @@ pub fn report(raw: Vec<RawUsbDevice>, samples: &[HistorySample], measured: &mut 
                 }
                 None => measured.get(&d.id).copied(),
             };
-            UsbDevice { name: d.name, arrived_ms: d.arrived_ms, suspended: d.suspended, draw_w }
+            UsbDevice {
+                name: d.name,
+                arrived_ms: d.arrived_ms,
+                suspended: d.suspended,
+                draw_w,
+                speed: d.link.map(|l| l.speed),
+                bottleneck: d.link.and_then(|l| l.bottleneck()),
+            }
         })
         .collect();
     devices.sort_by(|a, b| {
@@ -108,7 +164,42 @@ mod tests {
     }
 
     fn device(id: &str, name: &str, arrived_ms: Option<i64>, removable: bool) -> RawUsbDevice {
-        RawUsbDevice { id: id.into(), name: name.into(), arrived_ms, removable, suspended: false }
+        RawUsbDevice { id: id.into(), name: name.into(), arrived_ms, removable, suspended: false, link: None }
+    }
+
+    fn link(speed: UsbSpeed, superspeed_capable: bool, superspeed_port: bool) -> Option<UsbLink> {
+        Some(UsbLink { speed, superspeed_capable, superspeed_port })
+    }
+
+    #[test]
+    fn a_usb3_device_below_superspeed_blames_the_cable_or_the_port() {
+        // A USB 3 drive at 480 Mbps on a port that has a USB 3 lane: the cable is USB 2.
+        assert_eq!(link(UsbSpeed::High, true, true).unwrap().bottleneck(), Some(Bottleneck::Cable));
+        // Same drive on a USB 2 port or hub.
+        assert_eq!(link(UsbSpeed::High, true, false).unwrap().bottleneck(), Some(Bottleneck::Port));
+        // Running at full speed, or a device that can't do more anyway.
+        assert_eq!(link(UsbSpeed::Super, true, true).unwrap().bottleneck(), None);
+        assert_eq!(link(UsbSpeed::SuperPlus, true, true).unwrap().bottleneck(), None);
+        assert_eq!(link(UsbSpeed::High, false, true).unwrap().bottleneck(), None);
+        assert_eq!(link(UsbSpeed::Full, false, false).unwrap().bottleneck(), None);
+    }
+
+    #[test]
+    fn report_carries_the_link_speed_and_bottleneck() {
+        let mut slow = device("USB\\A", "Portable SSD", None, true);
+        slow.link = link(UsbSpeed::High, true, true);
+        let mut fast = device("USB\\B", "Flash Drive", None, true);
+        fast.link = link(UsbSpeed::Super, true, true);
+        let r = report(vec![slow, fast, device("USB\\C", "Mouse", None, true)], &[], &mut HashMap::new());
+        let got: Vec<_> = r.devices.iter().map(|d| (d.name.as_str(), d.speed, d.bottleneck)).collect();
+        assert_eq!(
+            got,
+            [
+                ("Flash Drive", Some(UsbSpeed::Super), None),
+                ("Mouse", None, None),
+                ("Portable SSD", Some(UsbSpeed::High), Some(Bottleneck::Cable)),
+            ]
+        );
     }
 
     #[test]
@@ -159,8 +250,8 @@ mod tests {
         assert_eq!(
             r.devices,
             vec![
-                UsbDevice { name: "Phone".into(), arrived_ms: Some(AT), suspended: false, draw_w: Some(4.0) },
-                UsbDevice { name: "Mouse".into(), arrived_ms: Some(AT - 7_200_000), suspended: false, draw_w: None },
+                UsbDevice { name: "Phone".into(), arrived_ms: Some(AT), suspended: false, draw_w: Some(4.0), speed: None, bottleneck: None },
+                UsbDevice { name: "Mouse".into(), arrived_ms: Some(AT - 7_200_000), suspended: false, draw_w: None, speed: None, bottleneck: None },
             ]
         );
         assert_eq!(measured.get("USB\\B"), Some(&4.0));

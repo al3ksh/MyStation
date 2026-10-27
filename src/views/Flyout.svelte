@@ -12,7 +12,7 @@
   import type { IconName } from '../lib/icons'
   import { live, startWindow } from '../lib/telemetry.svelte'
   import { errorText, toasts } from '../lib/toasts.svelte'
-  import type { BatterySnapshot } from '../lib/types'
+  import type { BatterySnapshot, PeripheralKind } from '../lib/types'
 
   let root: HTMLElement
   let name = $state(FALLBACK_NAME)
@@ -45,6 +45,19 @@
   onDestroy(() => live.stop())
 
   const app = $derived(live.app)
+
+  /** Matches `bluetooth::LOW_PCT`, where the low-battery notification fires. */
+  const LOW_PCT = 15
+  const KIND_ICON: Record<PeripheralKind, IconName> = {
+    mouse: 'mouse',
+    keyboard: 'keyboard',
+    headphones: 'headphones',
+    speaker: 'speaker',
+    controller: 'controller',
+    pen: 'pen',
+    phone: 'phone',
+    other: 'bluetooth',
+  }
   // The flyout has room for one banner: the most severe.
   const banner = $derived(app ? bannersFor(app)[0] : undefined)
   const t = $derived(live.telemetry)
@@ -141,6 +154,22 @@
         {/each}
       </ul>
     </section>
+
+    {#if app?.peripherals.length}
+      <section>
+        <h2>Bluetooth</h2>
+        <ul aria-label="Bluetooth devices">
+          {#each app.peripherals as d (d.name)}
+            <li class:low={d.batteryPct <= LOW_PCT}>
+              <Icon name={KIND_ICON[d.kind]} />
+              <span class="device" title={d.name}>{d.name}</span>
+              <span class="num">{d.batteryPct}%</span>
+              <span class="bar"><span style:width="{Math.min(100, d.batteryPct)}%"></span></span>
+            </li>
+          {/each}
+        </ul>
+      </section>
+    {/if}
 
     <Toasts />
   </div>
@@ -240,6 +269,21 @@
     border-radius: 2px;
     background: var(--surface-hover);
     overflow: hidden;
+  }
+
+  .device {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .low .num {
+    color: var(--danger, #e81123);
+  }
+
+  .low .bar span {
+    background: var(--danger, #e81123);
   }
 
   .bar span {

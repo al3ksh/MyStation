@@ -17,6 +17,7 @@ mod smbios;
 pub mod storage;
 mod system;
 pub mod usb;
+pub mod bluetooth;
 mod wmi_battery;
 mod wmi_dcim;
 

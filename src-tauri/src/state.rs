@@ -6,6 +6,7 @@ use std::sync::Mutex;
 use std::sync::mpsc::{Receiver, Sender, channel};
 
 use mystation_core::automation::{self, AutomationState};
+use mystation_core::bluetooth::BtDevice;
 use mystation_core::config::{self, Config};
 use mystation_core::dell::{Cctk, ChargeCfg, ThermalMode};
 use mystation_core::history::{HealthLog, History};
@@ -37,6 +38,8 @@ pub struct AppState {
     pub availability: Availability,
     pub autostart: bool,
     pub optimizer_warning_dismissed: bool,
+    /// Connected Bluetooth devices that report a battery, emptiest first.
+    pub peripherals: Vec<BtDevice>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -100,6 +103,7 @@ impl Core {
             },
             autostart: crate::autostart::is_enabled(),
             optimizer_warning_dismissed: config.optimizer_warning_dismissed,
+            peripherals: Vec::new(),
         };
         let core = Self {
             cctk,

@@ -50,6 +50,16 @@ export interface AppState {
   availability: Availability
   autostart: boolean
   optimizerWarningDismissed: boolean
+  /** Connected Bluetooth devices that report a battery, emptiest first. */
+  peripherals: Peripheral[]
+}
+
+export type PeripheralKind = 'mouse' | 'keyboard' | 'headphones' | 'speaker' | 'controller' | 'pen' | 'phone' | 'other'
+
+export interface Peripheral {
+  name: string
+  kind: PeripheralKind
+  batteryPct: number
 }
 
 export type GpuSnapshot =
@@ -252,7 +262,12 @@ export interface UsbDevice {
   suspended: boolean
   /** Extra battery draw measured when it was plugged in, in watts. */
   drawW: number | null
+  speed: UsbSpeed | null
+  /** Set when a USB 3 device runs at USB 2 speed: the cable, or a USB 2 port or hub. */
+  bottleneck: 'cable' | 'port' | null
 }
+
+export type UsbSpeed = 'low' | 'full' | 'high' | 'super' | 'superPlus'
 
 export interface UsbReport {
   /** Removable devices, biggest draw first. */

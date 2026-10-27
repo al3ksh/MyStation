@@ -273,6 +273,7 @@ mod tests {
             availability: Availability { cctk: true, wmi: true, dcm: true, admin: true, optimizer_running: false },
             autostart: false,
             optimizer_warning_dismissed: false,
+            peripherals: Vec::new(),
         }
     }
 

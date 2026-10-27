@@ -19,5 +19,6 @@ pub mod energy;
 pub mod power;
 pub mod sleep;
 pub mod usb;
+pub mod bluetooth;
 pub mod brand;
 pub mod migrate;

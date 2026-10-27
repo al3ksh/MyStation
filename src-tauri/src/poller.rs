@@ -8,12 +8,14 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
 use chrono::Local;
+use mystation_core::bluetooth::{self, BtDevice, LowBattery};
 use mystation_core::history::{HealthEntry, HistorySample};
 use mystation_core::sensors::{
     BatteryRaw, CpuSnapshot, CpuTimes, PowerWindow, Telemetry, battery_from_raw, load_between, parse_dcim,
     power_flow,
 };
 use tauri::{AppHandle, Emitter, Manager};
+use tauri_plugin_notification::NotificationExt;
 
 use crate::platform::{self, CpuPowerReader, GpuReader, WmiReaders};
 use crate::state::{Core, PollMode};
@@ -44,6 +46,7 @@ struct Poller {
     last_slow: Option<Instant>,
     bios_read: bool,
     bios_busy: Arc<AtomicBool>,
+    low_peripherals: LowBattery,
 }
 
 impl Poller {
@@ -65,6 +68,7 @@ impl Poller {
             last_slow: None,
             bios_read: false,
             bios_busy: Arc::default(),
+            low_peripherals: LowBattery::default(),
         }
     }
 
@@ -158,13 +162,24 @@ impl Poller {
         }
         self.adapter_w = self.wmi.as_ref().and_then(WmiReaders::adapter_w);
         let optimizer_running = platform::optimizer_running();
-        core.update(|s| {
+        let peripherals = bluetooth::devices(platform::bluetooth::nodes());
+        for d in self.low_peripherals.check(&peripherals) {
+            self.warn_low(d);
+        }
+        let after = core.update(|s| {
             s.battery = battery;
             s.availability.optimizer_running = optimizer_running;
+            s.peripherals = peripherals;
         });
-        let after = core.state();
-        if after.availability != before.availability {
+        if after.availability != before.availability || after.peripherals != before.peripherals {
             let _ = self.app.emit("state-changed", &after);
+        }
+    }
+
+    fn warn_low(&self, d: &BtDevice) {
+        let body = format!("{}% left. Charge it soon.", d.battery_pct);
+        if let Err(e) = self.app.notification().builder().title(format!("{} is running low", d.name)).body(body).show() {
+            eprintln!("poller: notification failed: {e}");
         }
     }
 

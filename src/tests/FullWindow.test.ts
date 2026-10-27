@@ -47,6 +47,7 @@ function appState(over: Partial<AppState> = {}): AppState {
     availability: { cctk: true, wmi: true, dcm: true, admin: true, optimizerRunning: false },
     autostart: false,
     optimizerWarningDismissed: false,
+    peripherals: [],
     ...over,
   }
 }

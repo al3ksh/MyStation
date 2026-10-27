@@ -4,6 +4,14 @@ Each release's section becomes its GitHub Release notes and the notes the
 in-app updater shows. `npm run release` refuses to publish a version that has
 no section here.
 
+## Unreleased
+
+- The flyout lists connected Bluetooth devices with their battery level (mouse,
+  keyboard, headphones and so on), and a notification says when one drops to
+  15%.
+- Hardware → USB shows the speed each device runs at, and points out a USB 3
+  device stuck at USB 2 speed: try another cable, or a USB 3 port.
+
 ## 0.5.2 — 2026-10-18
 
 - The Power page shows where the power goes. On battery: the CPU, the NVIDIA

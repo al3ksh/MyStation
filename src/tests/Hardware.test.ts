@@ -136,9 +136,9 @@ describe('Hardware', () => {
     const at = new Date('2026-10-09T09:30:00').getTime()
     usb = {
       devices: [
-        { name: 'Pixel 8', arrivedMs: at, suspended: false, drawW: 4.2 },
-        { name: 'MX Master 3', arrivedMs: at, suspended: true, drawW: 0 },
-        { name: 'USB hub', arrivedMs: null, suspended: false, drawW: null },
+        { name: 'Pixel 8', arrivedMs: at, suspended: false, drawW: 4.2, speed: null, bottleneck: null },
+        { name: 'MX Master 3', arrivedMs: at, suspended: true, drawW: 0, speed: null, bottleneck: null },
+        { name: 'USB hub', arrivedMs: null, suspended: false, drawW: null, speed: null, bottleneck: null },
       ],
       builtIn: 3,
     }
@@ -151,6 +151,26 @@ describe('Hardware', () => {
     expect(screen.getByText('Plugged in Oct 9, 9:30 AM · Sleeps when idle')).toBeTruthy()
     expect(screen.getByText('Always on')).toBeTruthy()
     expect(screen.getByText(/3 built-in devices, like the camera, aren't listed/)).toBeTruthy()
+  })
+
+  test('USB devices show their link speed and what holds a USB 3 device back', async () => {
+    const dev = { arrivedMs: null, suspended: false, drawW: null }
+    usb = {
+      devices: [
+        { ...dev, name: 'Portable SSD', speed: 'high', bottleneck: 'cable' },
+        { ...dev, name: 'Flash Drive', speed: 'high', bottleneck: 'port' },
+        { ...dev, name: 'Dock', speed: 'superPlus', bottleneck: null },
+        { ...dev, name: 'Mouse', speed: 'full', bottleneck: null },
+      ],
+      builtIn: 0,
+    }
+    render(Hardware)
+    expect(await screen.findByText('Portable SSD')).toBeTruthy()
+    expect(screen.getAllByText('480 Mbps · Always on')).toHaveLength(2)
+    expect(screen.getByText('10 Gbps · Always on')).toBeTruthy()
+    expect(screen.getByText('12 Mbps · Always on')).toBeTruthy()
+    expect(screen.getByText('USB 3 device held to USB 2 speed. Try a USB 3 cable.')).toBeTruthy()
+    expect(screen.getByText('USB 3 device held to USB 2 speed. Plug it into a USB 3 port.')).toBeTruthy()
   })
 
   test('no USB devices plugged in', async () => {

@@ -43,6 +43,7 @@ function appState(over: Partial<AppState> = {}): AppState {
     availability: { cctk: true, wmi: true, dcm: true, admin: true, optimizerRunning: false },
     autostart: false,
     optimizerWarningDismissed: false,
+    peripherals: [],
     ...over,
   }
 }
@@ -190,6 +191,35 @@ describe('Flyout', () => {
     await loaded()
     await fireEvent.click(screen.getByRole('radio', { name: 'Cool' }))
     expect(await screen.findByText('cctk exited with code 58')).toBeTruthy()
+  })
+
+  test('connected Bluetooth devices show their battery, a low one flagged', async () => {
+    invoke.mockResolvedValue(
+      appState({
+        peripherals: [
+          { name: 'Buds3 Pro', kind: 'headphones', batteryPct: 12 },
+          { name: 'MX Anywhere 3S', kind: 'mouse', batteryPct: 30 },
+        ],
+      }),
+    )
+    render(Flyout)
+    const list = await screen.findByRole('list', { name: 'Bluetooth devices' })
+    const items = [...list.querySelectorAll('li')]
+    expect(items.map((li) => li.textContent?.replace(/\s+/g, ' ').trim())).toEqual([
+      expect.stringContaining('Buds3 Pro'),
+      expect.stringContaining('MX Anywhere 3S'),
+    ])
+    expect(items[0].textContent).toContain('12%')
+    expect(items[1].textContent).toContain('30%')
+    expect(items[0].classList.contains('low')).toBe(true)
+    expect(items[1].classList.contains('low')).toBe(false)
+  })
+
+  test('no Bluetooth section without a connected device that reports a battery', async () => {
+    invoke.mockResolvedValue(appState())
+    render(Flyout)
+    await loaded()
+    expect(screen.queryByRole('list', { name: 'Bluetooth devices' })).toBeNull()
   })
 
   test('gpu Asleep renders "Asleep"', async () => {

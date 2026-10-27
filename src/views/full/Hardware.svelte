@@ -1,5 +1,5 @@
 <script lang="ts" module>
-  import type { BootReport, Culprit, DriveReport, SmartLog, StorageReport, UsbDevice, UsbReport } from '../../lib/types'
+  import type { BootReport, Culprit, DriveReport, SmartLog, StorageReport, UsbDevice, UsbReport, UsbSpeed } from '../../lib/types'
 
   // Both reads touch the disk and the event log; keep them across section switches.
   let storageCache: StorageReport | null = null
@@ -90,9 +90,26 @@
     return d.drawW < 0.1 ? 'Under 0.1 W' : `+${num(d.drawW, 1, ' W')}`
   }
 
+  const SPEED: Record<UsbSpeed, string> = {
+    low: '1.5 Mbps',
+    full: '12 Mbps',
+    high: '480 Mbps',
+    super: '5 Gbps',
+    superPlus: '10 Gbps',
+  }
+
+  const BOTTLENECK = {
+    cable: 'USB 3 device held to USB 2 speed. Try a USB 3 cable.',
+    port: 'USB 3 device held to USB 2 speed. Plug it into a USB 3 port.',
+  }
+
   function usbDetail(d: UsbDevice): string {
-    const power = d.suspended ? 'Sleeps when idle' : 'Always on'
-    return d.arrivedMs == null ? power : `Plugged in ${date(new Date(d.arrivedMs).toISOString(), true)} · ${power}`
+    const parts = [
+      d.speed && SPEED[d.speed],
+      d.arrivedMs != null && `Plugged in ${date(new Date(d.arrivedMs).toISOString(), true)}`,
+      d.suspended ? 'Sleeps when idle' : 'Always on',
+    ]
+    return parts.filter(Boolean).join(' · ')
   }
 
   function builtIn(n: number): string {
@@ -227,6 +244,7 @@
             <div class="text">
               <span>{d.name}</span>
               <span class="secondary">{usbDetail(d)}</span>
+              {#if d.bottleneck}<span class="warn">{BOTTLENECK[d.bottleneck]}</span>{/if}
             </div>
             <span class:secondary={d.drawW == null || d.drawW < 0.1}>{draw(d)}</span>
           </div>
@@ -245,6 +263,10 @@
 </div>
 
 <style>
+  .warn {
+    color: var(--danger, #e81123);
+  }
+
   .stack {
     display: grid;
     gap: 20px;
