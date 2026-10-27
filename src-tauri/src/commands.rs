@@ -10,6 +10,7 @@ use mystation_core::energy;
 use mystation_core::gpu;
 use mystation_core::history::{HealthEntry, HistorySample};
 use mystation_core::nvme;
+use mystation_core::power_mode::for_thermal;
 use mystation_core::profile::BatteryProfile;
 use mystation_core::sleep;
 use mystation_core::usb;
@@ -60,7 +61,43 @@ pub fn apply_thermal_mode(app: &AppHandle, core: &Core, mode: ThermalMode) -> Re
         return Err(DellError::NotInstalled.to_string());
     };
     let result = cctk.set_thermal(mode);
-    after_write(app, core, result, Core::set_thermal)
+    after_write(app, core, result, Core::set_thermal).map(|_| {
+        sync_power_mode(app, core);
+        core.state()
+    })
+}
+
+/// With the modes matched, sets the Windows power mode that goes with the thermal mode.
+/// Best effort: the thermal change stands either way.
+pub fn sync_power_mode(app: &AppHandle, core: &Core) {
+    // A thermal change and a power source change can both get here; the last one reads the
+    // latest thermal mode.
+    static SETTING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _guard = SETTING.lock_ok();
+    if !core.config.lock_ok().match_power_mode {
+        return;
+    }
+    let Some(thermal) = core.state().thermal else { return };
+    if let Err(e) = platform::power_mode::set(for_thermal(thermal)) {
+        eprintln!("power mode: {e}");
+    }
+    let state = core.update(|s| s.power_mode = platform::power_mode::get());
+    let _ = app.emit("state-changed", &state);
+}
+
+#[tauri::command(async)]
+pub fn set_match_power_mode(app: AppHandle, core: State<'_, Core>, enabled: bool) -> Result<AppState, String> {
+    {
+        let mut cfg = core.config.lock_ok();
+        let mut next = cfg.clone();
+        next.match_power_mode = enabled;
+        config::save(&config_path(), &next).map_err(|e| format!("Couldn't save the setting: {e}"))?;
+        *cfg = next;
+    }
+    let state = core.update(|s| s.match_power_mode = enabled);
+    let _ = app.emit("state-changed", &state);
+    sync_power_mode(&app, &core);
+    Ok(core.state())
 }
 
 #[tauri::command(async)]

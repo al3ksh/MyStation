@@ -12,6 +12,7 @@ mod gpu_power;
 mod mem;
 mod nvml;
 pub mod powercfg;
+pub mod power_mode;
 pub mod registry;
 mod shell;
 mod smbios;

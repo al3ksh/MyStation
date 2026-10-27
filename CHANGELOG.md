@@ -4,6 +4,13 @@ Each release's section becomes its GitHub Release notes and the notes the
 in-app updater shows. `npm run release` refuses to publish a version that has
 no section here.
 
+## Unreleased
+
+- Settings → Match Windows power mode to thermal mode: Ultra Performance sets
+  Windows to best performance, Optimized to balanced, Cool and Quiet to best
+  power efficiency. Plugging in or out keeps the match. The row says when
+  Energy Saver holds Windows at best power efficiency anyway.
+
 ## 0.6.0 — 2026-10-27
 
 - A Spec page lists what the laptop has and supports: the processor, memory

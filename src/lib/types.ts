@@ -52,7 +52,15 @@ export interface AppState {
   optimizerWarningDismissed: boolean
   /** Connected Bluetooth devices that report a battery, emptiest first. */
   peripherals: Peripheral[]
+  /** The Windows power mode for the current power source; null when Windows doesn't say. */
+  powerMode: PowerMode | null
+  /** Energy Saver holds Windows at best power efficiency whatever the mode. */
+  energySaver: boolean
+  /** Changing the thermal mode also sets the matching Windows power mode. */
+  matchPowerMode: boolean
 }
+
+export type PowerMode = 'BestEfficiency' | 'Balanced' | 'BestPerformance'
 
 export type PeripheralKind = 'mouse' | 'keyboard' | 'headphones' | 'speaker' | 'controller' | 'pen' | 'phone' | 'other'
 

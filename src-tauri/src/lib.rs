@@ -25,6 +25,7 @@ pub fn run() {
             commands::get_state,
             commands::set_battery_profile,
             commands::set_thermal_mode,
+            commands::set_match_power_mode,
             commands::get_history,
             commands::get_telemetry,
             commands::get_health_log,

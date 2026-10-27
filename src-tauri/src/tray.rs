@@ -274,6 +274,9 @@ mod tests {
             autostart: false,
             optimizer_warning_dismissed: false,
             peripherals: Vec::new(),
+            power_mode: None,
+            energy_saver: false,
+            match_power_mode: false,
         }
     }
 

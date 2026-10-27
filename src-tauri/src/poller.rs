@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 use chrono::Local;
 use mystation_core::bluetooth::{self, BtDevice, LowBattery};
 use mystation_core::history::{HealthEntry, HistorySample};
+use mystation_core::power_mode::SourceWatch;
 use mystation_core::sensors::{
     BatteryRaw, CpuSnapshot, CpuTimes, PowerWindow, Telemetry, battery_from_raw, load_between, parse_dcim,
     power_flow,
@@ -47,6 +48,7 @@ struct Poller {
     bios_read: bool,
     bios_busy: Arc<AtomicBool>,
     low_peripherals: LowBattery,
+    source: SourceWatch,
 }
 
 impl Poller {
@@ -69,6 +71,7 @@ impl Poller {
             bios_read: false,
             bios_busy: Arc::default(),
             low_peripherals: LowBattery::default(),
+            source: SourceWatch::default(),
         }
     }
 
@@ -104,6 +107,7 @@ impl Poller {
         let raw = self.wmi.as_ref().and_then(WmiReaders::battery);
         if let Some(r) = &raw {
             crate::automation::tick(&self.app, r.power_online);
+            self.follow_source(r.power_online);
         }
         if mode == PollMode::Active {
             self.sample_telemetry(raw.as_ref());
@@ -162,6 +166,9 @@ impl Poller {
         }
         self.adapter_w = self.wmi.as_ref().and_then(WmiReaders::adapter_w);
         let optimizer_running = platform::optimizer_running();
+        // The user can change these in Windows at any time.
+        let power_mode = platform::power_mode::get();
+        let energy_saver = platform::power_mode::energy_saver();
         let peripherals = bluetooth::devices(platform::bluetooth::nodes());
         for d in self.low_peripherals.check(&peripherals) {
             self.warn_low(d);
@@ -170,10 +177,32 @@ impl Poller {
             s.battery = battery;
             s.availability.optimizer_running = optimizer_running;
             s.peripherals = peripherals;
+            s.power_mode = power_mode;
+            s.energy_saver = energy_saver;
         });
-        if after.availability != before.availability || after.peripherals != before.peripherals {
+        if after.availability != before.availability
+            || after.peripherals != before.peripherals
+            || after.power_mode != before.power_mode
+            || after.energy_saver != before.energy_saver
+        {
             let _ = self.app.emit("state-changed", &after);
         }
+    }
+
+    /// Windows brings back its own power mode for the new source on plug in or out; with the
+    /// modes matched, set the one that goes with the thermal mode again.
+    fn follow_source(&mut self, on_ac: bool) {
+        let core = self.app.state::<Core>();
+        let matched = core.config.lock_ok().match_power_mode;
+        if self.source.observe(on_ac, matched, core.state().thermal).is_none() {
+            return;
+        }
+        let app = self.app.clone();
+        std::thread::spawn(move || {
+            // Let Windows finish its own switch first, or it lands on top of ours.
+            std::thread::sleep(Duration::from_secs(2));
+            crate::commands::sync_power_mode(&app, &app.state::<Core>());
+        });
     }
 
     fn warn_low(&self, d: &BtDevice) {

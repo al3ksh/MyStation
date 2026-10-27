@@ -44,6 +44,9 @@ function appState(over: Partial<AppState> = {}): AppState {
     autostart: false,
     optimizerWarningDismissed: false,
     peripherals: [],
+    powerMode: 'Balanced',
+    energySaver: false,
+    matchPowerMode: false,
     ...over,
   }
 }

@@ -17,6 +17,8 @@ pub struct Config {
     pub automation: Automation,
     /// The first start without Dell Command | Configure opened the full window to say it is needed.
     pub setup_notice_shown: bool,
+    /// Changing the thermal mode also sets the matching Windows power mode.
+    pub match_power_mode: bool,
 }
 
 impl Config {
@@ -38,6 +40,7 @@ impl Default for Config {
             optimizer_warning_dismissed: false,
             automation: Automation::default(),
             setup_notice_shown: false,
+            match_power_mode: false,
         }
     }
 }
@@ -119,6 +122,7 @@ mod tests {
         cfg.profiles.home = ChargeCfg::Custom { start: 70, stop: 85 };
         cfg.optimizer_warning_dismissed = true;
         cfg.automation.thermal.enabled = true;
+        cfg.match_power_mode = true;
         save(&path, &cfg).unwrap();
         assert_eq!(load(&path), cfg);
     }

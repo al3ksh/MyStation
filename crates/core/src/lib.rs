@@ -19,6 +19,7 @@ pub mod nvme;
 pub mod gpu;
 pub mod energy;
 pub mod power;
+pub mod power_mode;
 pub mod sleep;
 pub mod usb;
 pub mod bluetooth;

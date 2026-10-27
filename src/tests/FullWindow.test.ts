@@ -48,6 +48,9 @@ function appState(over: Partial<AppState> = {}): AppState {
     autostart: false,
     optimizerWarningDismissed: false,
     peripherals: [],
+    powerMode: 'Balanced',
+    energySaver: false,
+    matchPowerMode: false,
     ...over,
   }
 }
@@ -239,6 +242,32 @@ describe('FullWindow', () => {
     await fireEvent.click(toggle)
     expect(invoke).toHaveBeenCalledWith('set_autostart', { enabled: true })
     await waitFor(() => expect(toggle.getAttribute('aria-checked')).toBe('true'))
+  })
+
+  test('power mode toggle couples Windows to the thermal mode', async () => {
+    const state = appState()
+    route(state)
+    const routed = invoke.getMockImplementation()!
+    invoke.mockImplementation((cmd: string, args?: { enabled?: boolean }) =>
+      cmd === 'set_match_power_mode'
+        ? Promise.resolve({ ...state, matchPowerMode: true, powerMode: 'BestEfficiency' })
+        : routed(cmd, args),
+    )
+    render(FullWindow)
+    await open('Settings')
+    const toggle = await screen.findByRole('switch', { name: 'Match Windows power mode to thermal mode' })
+    expect(screen.getByText(/Windows is on Balanced/)).toBeTruthy()
+    await fireEvent.click(toggle)
+    expect(invoke).toHaveBeenCalledWith('set_match_power_mode', { enabled: true })
+    await waitFor(() => expect(toggle.getAttribute('aria-checked')).toBe('true'))
+    expect(screen.getByText(/Windows is on Best power efficiency/)).toBeTruthy()
+  })
+
+  test('power mode row says when Energy Saver holds Windows at efficiency', async () => {
+    route(appState({ energySaver: true, powerMode: 'BestPerformance' }))
+    render(FullWindow)
+    await open('Settings')
+    expect(await screen.findByText(/Energy Saver is on, so Windows runs at best power efficiency/)).toBeTruthy()
   })
 
   test('check for updates reports an up-to-date app', async () => {

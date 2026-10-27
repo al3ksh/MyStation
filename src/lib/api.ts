@@ -5,6 +5,7 @@ export const api = {
   getState: () => invoke<AppState>('get_state'),
   setBatteryProfile: (profile: BatteryProfile) => invoke<AppState>('set_battery_profile', { profile }),
   setThermalMode: (mode: ThermalMode) => invoke<AppState>('set_thermal_mode', { mode }),
+  setMatchPowerMode: (enabled: boolean) => invoke<AppState>('set_match_power_mode', { enabled }),
   /** The last telemetry tick, or null while the poller has none yet. */
   getTelemetry: () => invoke<Telemetry | null>('get_telemetry'),
   getHistory: (minutes: number) => invoke<HistorySample[]>('get_history', { minutes }),

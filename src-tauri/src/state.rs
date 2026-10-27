@@ -10,6 +10,7 @@ use mystation_core::bluetooth::BtDevice;
 use mystation_core::config::{self, Config};
 use mystation_core::dell::{Cctk, ChargeCfg, ThermalMode};
 use mystation_core::history::{HealthLog, History};
+use mystation_core::power_mode::PowerMode;
 use mystation_core::profile::{ActiveProfile, Profiles, detect};
 use mystation_core::sensors::{BatterySnapshot, Telemetry};
 use serde::Serialize;
@@ -40,6 +41,11 @@ pub struct AppState {
     pub optimizer_warning_dismissed: bool,
     /// Connected Bluetooth devices that report a battery, emptiest first.
     pub peripherals: Vec<BtDevice>,
+    /// The Windows power mode for the current power source.
+    pub power_mode: Option<PowerMode>,
+    /// Energy Saver is on: Windows runs at best power efficiency whatever the power mode.
+    pub energy_saver: bool,
+    pub match_power_mode: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -104,6 +110,9 @@ impl Core {
             autostart: crate::autostart::is_enabled(),
             optimizer_warning_dismissed: config.optimizer_warning_dismissed,
             peripherals: Vec::new(),
+            power_mode: platform::power_mode::get(),
+            energy_saver: platform::power_mode::energy_saver(),
+            match_power_mode: config.match_power_mode,
         };
         let core = Self {
             cctk,

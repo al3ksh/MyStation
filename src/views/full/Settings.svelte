@@ -9,12 +9,13 @@
   import { api } from '../../lib/api'
   import { live } from '../../lib/telemetry.svelte'
   import { errorText, toasts } from '../../lib/toasts.svelte'
-  import type { DeviceInfo } from '../../lib/types'
+  import type { DeviceInfo, PowerMode } from '../../lib/types'
 
   let { device, name }: { device: DeviceInfo | null; name: string } = $props()
 
   let version = $state<string | null>(null)
   let autostartBusy = $state(false)
+  let powerModeBusy = $state(false)
   const app = $derived(live.app)
 
   onMount(() => {
@@ -34,6 +35,30 @@
       toasts.push(errorText(e))
     } finally {
       autostartBusy = false
+    }
+  }
+
+  const POWER_MODE: Record<PowerMode, string> = {
+    BestEfficiency: 'Best power efficiency',
+    Balanced: 'Balanced',
+    BestPerformance: 'Best performance',
+  }
+
+  const powerModeText = $derived.by(() => {
+    if (app?.energySaver) return 'Energy Saver is on, so Windows runs at best power efficiency whatever the mode'
+    const now = app?.powerMode ? `Windows is on ${POWER_MODE[app.powerMode]}. ` : ''
+    return `${now}Ultra Performance sets best performance, Optimized balanced, Cool and Quiet best power efficiency`
+  })
+
+  async function toggleMatchPowerMode() {
+    if (!app) return
+    powerModeBusy = true
+    try {
+      live.app = await api.setMatchPowerMode(!app.matchPowerMode)
+    } catch (e) {
+      toasts.push(errorText(e))
+    } finally {
+      powerModeBusy = false
     }
   }
 
@@ -114,6 +139,19 @@
         label="Start at sign-in"
         disabled={!app || autostartBusy}
         onchange={toggleAutostart}
+      />
+    </div>
+    <div class="row">
+      <Icon name="lightning" size={20} />
+      <div class="text">
+        <span>Match Windows power mode to thermal mode</span>
+        <span class="secondary">{powerModeText}</span>
+      </div>
+      <Switch
+        checked={app?.matchPowerMode ?? false}
+        label="Match Windows power mode to thermal mode"
+        disabled={!app || powerModeBusy}
+        onchange={toggleMatchPowerMode}
       />
     </div>
   </section>
@@ -197,7 +235,8 @@
     border-bottom-right-radius: 0;
   }
 
-  .row.support {
+  .row.support,
+  .row + .row {
     margin-top: 4px;
   }
 
