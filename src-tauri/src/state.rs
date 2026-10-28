@@ -11,6 +11,7 @@ use mystation_core::config::{self, Config};
 use mystation_core::dell::{Cctk, ChargeCfg, ThermalMode};
 use mystation_core::history::{HealthLog, History};
 use mystation_core::power_mode::PowerMode;
+use mystation_core::records::{BatteryStint, RecordsLog};
 use mystation_core::profile::{ActiveProfile, Profiles, detect};
 use mystation_core::sensors::{BatterySnapshot, Telemetry};
 use serde::Serialize;
@@ -48,6 +49,8 @@ pub struct AppState {
     pub match_power_mode: bool,
     /// A newer release found by the background check; installing it stays in Settings.
     pub update_version: Option<String>,
+    /// Since when the laptop runs on battery; `None` on AC.
+    pub on_battery_since: Option<BatteryStint>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -61,6 +64,7 @@ pub struct Core {
     pub config: Mutex<Config>,
     pub history: Mutex<History>,
     pub health: Mutex<HealthLog>,
+    pub records: Mutex<RecordsLog>,
     pub snapshot: Mutex<AppState>,
     /// Last telemetry sample while a window is open, so a window can paint it before the next tick.
     pub telemetry: Mutex<Option<Telemetry>>,
@@ -116,12 +120,14 @@ impl Core {
             energy_saver: platform::power_mode::energy_saver(),
             match_power_mode: config.match_power_mode,
             update_version: None,
+            on_battery_since: None,
         };
         let core = Self {
             cctk,
             config: Mutex::new(config),
             history: Mutex::new(History::new()),
             health: Mutex::new(HealthLog::open(&data_dir().join("battery-health.json"))),
+            records: Mutex::new(RecordsLog::open(&data_dir().join("records.json"))),
             snapshot: Mutex::new(snapshot),
             telemetry: Mutex::default(),
             automation: Mutex::new(automation::load_state(&crate::automation::state_path())),

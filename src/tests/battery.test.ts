@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { chargeTargetPct, duration, timeLeftMin, timeToFullMin } from '../lib/battery'
+import { chargeTargetPct, duration, onBatterySince, timeLeftMin, timeToFullMin } from '../lib/battery'
 import type { HistorySample } from '../lib/types'
 
 const at = (s: number, batteryW: number | null): HistorySample => ({
@@ -78,5 +78,21 @@ describe('chargeTargetPct', () => {
   test('the other modes charge to full', () => {
     expect(chargeTargetPct({ kind: 'Standard' })).toBe(100)
     expect(chargeTargetPct({ kind: 'Express' })).toBe(100)
+  })
+})
+
+describe('onBatterySince', () => {
+  const MIN = 60_000
+
+  test('reads the time since unplugging and the charge used', () => {
+    expect(onBatterySince({ sinceMs: 0, sincePct: 82 }, 134 * MIN, 44)).toBe('2 h 14 min, −38%')
+  })
+
+  test('only the time when the charge at unplugging is unknown', () => {
+    expect(onBatterySince({ sinceMs: 0, sincePct: null }, 42 * MIN, 44)).toBe('42 min')
+  })
+
+  test('no charge used yet shows only the time', () => {
+    expect(onBatterySince({ sinceMs: 0, sincePct: 80.2 }, 3 * MIN, 80)).toBe('3 min')
   })
 })

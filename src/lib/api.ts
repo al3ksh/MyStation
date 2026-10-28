@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { AppState, BatteryProfile, BiosSetting, BootReport, DeviceInfo, DgpuReport, DisplayInfo, EnergyReport, GpuChoice, HealthEntry, HistorySample, Routine, RoutineOptions, SleepReport, Spec, StorageReport, Telemetry, ThermalMode, UsbReport } from './types'
+import type { AppState, BatteryProfile, BiosSetting, BootReport, DeviceInfo, DgpuReport, DisplayInfo, EnergyReport, GpuChoice, HealthEntry, HistorySample, Records, Routine, RoutineOptions, SleepReport, Spec, StorageReport, Telemetry, ThermalMode, UsbReport } from './types'
 
 export const api = {
   getState: () => invoke<AppState>('get_state'),
@@ -43,4 +43,7 @@ export const api = {
     section ? invoke<void>('open_full_window', { section }) : invoke<void>('open_full_window'),
   /** The calling window has painted its first state; the backend shows it only now, so it never flashes blank. */
   windowReady: () => invoke<void>('window_ready'),
+  getRecords: () => invoke<Records>('get_records'),
+  /** The records window, over the main window. */
+  openRecords: () => invoke<void>('open_records'),
 }

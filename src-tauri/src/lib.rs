@@ -33,6 +33,8 @@ pub fn run() {
             commands::set_autostart,
             commands::dismiss_optimizer_warning,
             commands::open_full_window,
+            commands::open_records,
+            commands::get_records,
             commands::window_ready,
             commands::fit_flyout,
             commands::get_device_info,

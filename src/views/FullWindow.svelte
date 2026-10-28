@@ -117,6 +117,11 @@
     {/each}
 
     <div class="spacer"></div>
+    <!-- Its own window over this one, like the flyout. -->
+    <button type="button" class="item" onclick={() => api.openRecords().catch((e) => toasts.push(errorText(e)))}>
+      <Icon name="star" />
+      <span>Records</span>
+    </button>
     {@render item('Settings', 'settings', !!app?.updateVersion)}
   </nav>
 

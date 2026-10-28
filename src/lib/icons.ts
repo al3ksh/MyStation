@@ -45,6 +45,7 @@ export const GLYPH = {
   edit: '\uE70F',
   up: '\uE70E',
   down: '\uE70D',
+  star: '\uE734',
 } as const
 
 export type IconName = keyof typeof GLYPH

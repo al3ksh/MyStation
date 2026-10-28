@@ -60,13 +60,13 @@ pub struct BootReport {
 
 /// One event: its ID, creation time and `EventData` fields.
 #[derive(Debug, Default, PartialEq)]
-struct RawEvent {
-    id: u32,
-    time: Option<DateTime<Utc>>,
-    data: HashMap<String, String>,
+pub(crate) struct RawEvent {
+    pub(crate) id: u32,
+    pub(crate) time: Option<DateTime<Utc>>,
+    pub(crate) data: HashMap<String, String>,
 }
 
-fn parse_event(xml: &str) -> Option<RawEvent> {
+pub(crate) fn parse_event(xml: &str) -> Option<RawEvent> {
     let mut reader = Reader::from_str(xml);
     let mut ev = RawEvent::default();
     // The element whose text is being collected and the text so far.

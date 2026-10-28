@@ -1,12 +1,12 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onDestroy, onMount } from 'svelte'
   import Card from '../../components/Card.svelte'
   import LineChart from '../../components/LineChart.svelte'
   import ModeControls from '../../components/ModeControls.svelte'
   import { api } from '../../lib/api'
   import { num, pct, watts, wh } from '../../lib/format'
   import { HISTORY_MINUTES } from '../../lib/history.svelte'
-  import { chargeTargetPct, duration, timeLeftMin, timeToFullMin } from '../../lib/battery'
+  import { chargeTargetPct, duration, onBatterySince, timeLeftMin, timeToFullMin } from '../../lib/battery'
   import { chargeCfgLabel, PROFILE_LABEL } from '../../lib/labels'
   import { live } from '../../lib/telemetry.svelte'
   import { errorText, toasts } from '../../lib/toasts.svelte'
@@ -33,6 +33,12 @@
   const battery = $derived(live.telemetry?.battery ?? live.app?.battery ?? null)
   const pctPoints = $derived(samples.map((s) => ({ t: s.tsMs, v: s.batteryPct })))
   const wPoints = $derived(samples.map((s) => ({ t: s.tsMs, v: s.batteryW })))
+
+  // The time since unplugging moves on between state changes.
+  let now = $state(Date.now())
+  const clock = setInterval(() => (now = Date.now()), 30_000)
+  onDestroy(() => clearInterval(clock))
+  const stint = $derived(app?.onBatterySince ?? null)
 
   const timeLeft = $derived(battery?.state === 'discharging' ? timeLeftMin(samples, battery.remainingMwh) : null)
   const targetPct = $derived(app?.charge ? chargeTargetPct(app.charge) : 100)
@@ -68,6 +74,9 @@
       {/if}
       <div><dt>Voltage</dt><dd class="num">{num(battery?.voltageV, 2, ' V')}</dd></div>
       <div><dt>Power</dt><dd class="num">{watts(battery?.powerW)}</dd></div>
+      {#if stint && battery}
+        <div><dt>On battery since</dt><dd class="num">{onBatterySince(stint, now, battery.percent)}</dd></div>
+      {/if}
       {#if battery?.state === 'discharging'}
         <div><dt>Time left</dt><dd class="num">{timeLeft == null ? 'Estimating…' : duration(timeLeft)}</dd></div>
       {:else if charging}

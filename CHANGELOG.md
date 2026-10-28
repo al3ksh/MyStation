@@ -11,6 +11,13 @@ no section here.
 - Battery → Health shows the time left on battery, from the average draw of
   the last five minutes since unplugging, and while charging the time to the
   charge limit (marked "may vary": charging slows near the top).
+- Battery → Health shows how long the laptop has been on battery and how much
+  charge it used since unplugging, e.g. "2 h 14 min, −38%".
+- Records, under the main window's navigation: the hottest CPU and GPU, the
+  fastest fan, the highest battery draw and the longest time on battery, each
+  with its date. The longest time on battery counts back through Windows'
+  own log of plugging in and out; temperatures and fans are recorded while a
+  window is open.
 
 ## 0.7.0 — 2026-10-27
 

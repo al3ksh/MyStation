@@ -52,6 +52,7 @@ function appState(over: Partial<AppState> = {}): AppState {
     energySaver: false,
     matchPowerMode: false,
     updateVersion: null,
+    onBatterySince: null,
     ...over,
   }
 }
@@ -80,6 +81,7 @@ function route(
     if (cmd === 'get_history' || cmd === 'get_health_log') return Promise.resolve([])
     if (cmd === 'set_autostart') return Promise.resolve(args?.enabled ?? false)
     if (cmd === 'window_ready') return Promise.resolve(onReady())
+    if (cmd === 'open_records') return Promise.resolve()
     if (cmd === 'get_app_name') return Promise.resolve('MyXPS')
     if (cmd === 'get_device_info')
       return Promise.resolve({
@@ -168,6 +170,22 @@ describe('FullWindow', () => {
     expect(screen.getByText('Estimating…')).toBeTruthy()
   })
 
+  test('on battery since shows the time unplugged and the charge used', async () => {
+    route(appState({ onBatterySince: { sinceMs: Date.now() - 134 * 60_000, sincePct: 100 } }))
+    render(FullWindow)
+    await openBattery()
+    expect(await screen.findByText('On battery since')).toBeTruthy()
+    expect(screen.getByText('2 h 14 min, −18%')).toBeTruthy()
+  })
+
+  test('no "on battery since" on AC', async () => {
+    route(appState())
+    render(FullWindow)
+    await openBattery()
+    expect(await screen.findByText('Wear')).toBeTruthy()
+    expect(screen.queryByText('On battery since')).toBeNull()
+  })
+
   test('charging estimates the time to the charge limit', async () => {
     const s = appState()
     route({ ...s, battery: { ...s.battery!, state: 'charging', powerW: 18.7, remainingMwh: 50000 } })
@@ -193,6 +211,14 @@ describe('FullWindow', () => {
     render(FullWindow)
     await openBattery()
     expect(await screen.findByText('13.6%')).toBeTruthy()
+  })
+
+  test('Records opens the records window', async () => {
+    route(appState())
+    render(FullWindow)
+    await loaded()
+    await fireEvent.click(screen.getByRole('button', { name: 'Records' }))
+    expect(invoke).toHaveBeenCalledWith('open_records')
   })
 
   test('navigation lists every section', async () => {

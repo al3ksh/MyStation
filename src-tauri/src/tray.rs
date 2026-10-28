@@ -278,6 +278,7 @@ mod tests {
             energy_saver: false,
             match_power_mode: false,
             update_version: None,
+            on_battery_since: None,
         }
     }
 

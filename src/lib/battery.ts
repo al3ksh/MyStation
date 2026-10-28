@@ -1,4 +1,4 @@
-import type { ChargeCfg, HistorySample } from './types'
+import type { BatteryStint, ChargeCfg, HistorySample } from './types'
 
 const WINDOW_MS = 5 * 60_000
 const MIN_SPAN_MS = 60_000
@@ -45,4 +45,11 @@ export function duration(min: number): string {
   const h = Math.floor(min / 60)
   const m = min % 60
   return h ? `${h} h ${String(m).padStart(2, '0')} min` : `${m} min`
+}
+
+/** `2 h 14 min, −38%`: the time since unplugging and the charge used since, when known. */
+export function onBatterySince(stint: BatteryStint, nowMs: number, percent: number): string {
+  const time = duration(Math.max(0, Math.floor((nowMs - stint.sinceMs) / 60_000)))
+  const used = stint.sincePct == null ? 0 : Math.round(stint.sincePct - percent)
+  return used > 0 ? `${time}, −${used}%` : time
 }

@@ -35,7 +35,7 @@ pub use mem::mem;
 pub use nvml::{GpuReader, Nvml};
 pub use shell::{light_taskbar, tray_icon_size};
 pub use smbios::device_info;
-pub use system::{is_elevated, optimizer_running};
+pub use system::{is_elevated, optimizer_running, uptime_ms};
 
 use wmi::WMIConnection;
 

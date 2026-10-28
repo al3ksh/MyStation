@@ -26,3 +26,4 @@ pub mod usb;
 pub mod bluetooth;
 pub mod brand;
 pub mod migrate;
+pub mod records;

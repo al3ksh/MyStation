@@ -60,6 +60,30 @@ export interface AppState {
   matchPowerMode: boolean
   /** A newer release the background check found, if any. */
   updateVersion: string | null
+  /** Since when the laptop runs on battery; null on AC. */
+  onBatterySince: BatteryStint | null
+}
+
+export interface BatteryStint {
+  sinceMs: number
+  /** Null when the laptop started on battery: the charge at unplugging isn't known. */
+  sincePct: number | null
+}
+
+/** A best value and when it happened. */
+export interface RecordEntry {
+  value: number
+  atMs: number
+}
+
+export interface Records {
+  cpuTempC: RecordEntry | null
+  gpuTempC: RecordEntry | null
+  fanRpm: RecordEntry | null
+  /** The laptop's whole draw from the battery, in watts. */
+  batteryDrawW: RecordEntry | null
+  /** Minutes; `atMs` is when that time on battery began. */
+  batteryStintMin: RecordEntry | null
 }
 
 export type PowerMode = 'BestEfficiency' | 'Balanced' | 'BestPerformance'

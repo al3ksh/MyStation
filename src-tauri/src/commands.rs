@@ -12,6 +12,7 @@ use mystation_core::history::{HealthEntry, HistorySample};
 use mystation_core::nvme;
 use mystation_core::power_mode::for_thermal;
 use mystation_core::profile::BatteryProfile;
+use mystation_core::records::Records;
 use mystation_core::sleep;
 use mystation_core::usb;
 use mystation_core::display;
@@ -156,6 +157,16 @@ pub fn dismiss_optimizer_warning(app: AppHandle, core: State<'_, Core>) {
 #[tauri::command(async)]
 pub fn open_full_window(app: AppHandle, section: Option<String>) {
     crate::windows::open_full_at(&app, section.as_deref());
+}
+
+#[tauri::command(async)]
+pub fn open_records(app: AppHandle) {
+    crate::windows::open_records(&app);
+}
+
+#[tauri::command]
+pub fn get_records(core: State<'_, Core>) -> Records {
+    core.records.lock_ok().records().clone()
 }
 
 /// The flyout's content height (CSS px): the window is sized to it.

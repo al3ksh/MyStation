@@ -13,6 +13,7 @@ use mystation_core::bluetooth::{self, BtDevice, LowBattery};
 use mystation_core::display::Connection;
 use mystation_core::history::{HealthEntry, HistorySample};
 use mystation_core::power_mode::SourceWatch;
+use mystation_core::records::{self, BatteryStint, POWER_PROVIDER, POWER_SOURCE_EVENT, PowerSourceEvent};
 use mystation_core::sensors::{
     BatteryRaw, CpuSnapshot, CpuTimes, PowerWindow, Telemetry, battery_from_raw, load_between, parse_dcim,
     power_flow,
@@ -56,6 +57,10 @@ struct Poller {
     wifi: Option<Option<String>>,
     displays: Option<u32>,
     bt_connected: Option<Vec<String>>,
+    /// The power source on the last tick; `None` before the first battery read.
+    on_ac: Option<bool>,
+    /// The time on battery if the app starts unplugged, from the event log.
+    startup_stint: BatteryStint,
 }
 
 impl Poller {
@@ -66,7 +71,14 @@ impl Poller {
             s.availability.wmi = wmi.is_some();
             s.availability.dcm = dcm;
         });
+        let events = power_source_events();
+        let now = Local::now().timestamp_millis();
+        if let Some(longest) = records::longest_stint(&events) {
+            app.state::<Core>().records.lock_ok().update(|r| r.seed_stint(longest));
+        }
         Self {
+            startup_stint: records::current_stint(events.first(), now - platform::uptime_ms()),
+            on_ac: None,
             app,
             wmi,
             gpu: GpuReader::new(),
@@ -129,6 +141,7 @@ impl Poller {
             };
             let routed = crate::automation::tick(&self.app, inputs);
             self.follow_source(r.power_online, routed);
+            self.track_battery(r);
         }
         if mode == PollMode::Active {
             self.sample_telemetry(raw.as_ref());
@@ -170,6 +183,7 @@ impl Poller {
         };
         let core = self.app.state::<Core>();
         core.history.lock_ok().push(HistorySample::from(&telemetry));
+        core.records.lock_ok().update(|r| r.observe(&telemetry));
         *core.telemetry.lock_ok() = Some(telemetry.clone());
         let state = core.update(|s| s.battery = telemetry.battery.clone());
         crate::tray::refresh(&self.app, &state, telemetry.cpu.temp_c);
@@ -185,6 +199,9 @@ impl Poller {
         {
             let entry = HealthEntry { date: Local::now().date_naive(), full_mwh, design_mwh, cycles: b.cycles };
             let _ = core.health.lock_ok().record(entry);
+        }
+        if let Err(e) = core.records.lock_ok().flush() {
+            eprintln!("poller: saving records failed: {e}");
         }
         self.adapter_w = self.wmi.as_ref().and_then(WmiReaders::adapter_w);
         let optimizer_running = platform::optimizer_running();
@@ -233,6 +250,28 @@ impl Poller {
         });
     }
 
+    /// The time on battery, and the records the tray-only poll can see: the battery's.
+    fn track_battery(&mut self, r: &BatteryRaw) {
+        let core = self.app.state::<Core>();
+        let now = Local::now().timestamp_millis();
+        let battery = battery_from_raw(r);
+        if self.on_ac != Some(r.power_online) {
+            let stint = match self.on_ac {
+                _ if r.power_online => None,
+                None => Some(self.startup_stint),
+                Some(_) => Some(BatteryStint { since_ms: now, since_pct: battery.percent }),
+            };
+            self.on_ac = Some(r.power_online);
+            let state = core.update(|s| s.on_battery_since = stint);
+            let _ = self.app.emit("state-changed", &state);
+        }
+        let stint = core.state().on_battery_since;
+        core.records.lock_ok().update(|rec| {
+            let stint_moved = stint.is_some_and(|s| rec.observe_stint(&s, now));
+            rec.observe_battery(&battery, now) | stint_moved
+        });
+    }
+
     fn warn_low(&self, d: &BtDevice) {
         let body = format!("{}% left. Charge it soon.", d.battery_pct);
         if let Err(e) = self.app.notification().builder().title(format!("{} is running low", d.name)).body(body).show() {
@@ -259,6 +298,13 @@ impl Poller {
             busy.store(false, Ordering::Release);
         });
     }
+}
+
+/// Plug-in and unplug events, newest first; empty if the log can't be read.
+fn power_source_events() -> Vec<PowerSourceEvent> {
+    let xpath = format!("*[System[Provider[@Name='{POWER_PROVIDER}'] and (EventID={POWER_SOURCE_EVENT})]]");
+    let events = platform::event_log::query("System", &xpath, 500).unwrap_or_default();
+    events.iter().filter_map(|xml| records::power_source_event(xml)).collect()
 }
 
 /// cctk reads go through Dell's SMBIOS calls, which freeze every core for milliseconds at a time

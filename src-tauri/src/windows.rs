@@ -20,6 +20,10 @@ use crate::sync::LockExt;
 
 pub const FLYOUT: &str = "flyout";
 pub const MAIN: &str = "main";
+pub const RECORDS: &str = "records";
+
+const RECORDS_W: f64 = 340.0;
+const RECORDS_H: f64 = 404.0;
 
 const FLYOUT_W: f64 = 360.0;
 /// Until the page reports its content height.
@@ -250,6 +254,49 @@ pub fn open_full_at(app: &AppHandle, section: Option<&str>) {
         watch(app, &w);
         reveal_fallback(&w);
     }
+}
+
+/// Records: a flyout-style card over the full window, gone as soon as it loses focus.
+pub fn open_records(app: &AppHandle) {
+    if let Some(w) = app.get_webview_window(RECORDS) {
+        let _ = w.set_focus();
+        return;
+    }
+    let builder = WebviewWindowBuilder::new(app, RECORDS, WebviewUrl::App("index.html".into()))
+        .title("Records")
+        .inner_size(RECORDS_W, RECORDS_H)
+        .resizable(false)
+        .decorations(false)
+        .skip_taskbar(true)
+        .transparent(true)
+        .shadow(true)
+        .effects(EffectsBuilder::new().effect(Effect::Acrylic).build())
+        .visible(false);
+    // A child of the full window: it stays above it and leaves with it.
+    let main = app.get_webview_window(MAIN);
+    let builder = match &main {
+        Some(m) => builder.parent(m),
+        None => Ok(builder),
+    };
+    let Ok(w) = builder.and_then(|b| b.build()) else { return };
+    if let Some(m) = &main {
+        center_over(&w, m);
+    }
+    watch(app, &w);
+    reveal_fallback(&w);
+    let handle = w.clone();
+    w.on_window_event(move |e| {
+        if let WindowEvent::Focused(false) = e {
+            let _ = handle.destroy();
+        }
+    });
+}
+
+fn center_over(w: &WebviewWindow, over: &WebviewWindow) {
+    let (Ok(pos), Ok(size), Ok(scale)) = (over.outer_position(), over.outer_size(), over.scale_factor()) else { return };
+    let x = f64::from(pos.x) + (f64::from(size.width) - RECORDS_W * scale) / 2.0;
+    let y = f64::from(pos.y) + (f64::from(size.height) - RECORDS_H * scale) / 2.0;
+    let _ = w.set_position(PhysicalPosition::new(x.round() as i32, y.round() as i32));
 }
 
 /// Live sampling while the full window exists or the flyout is on screen; tray-only polling otherwise.
