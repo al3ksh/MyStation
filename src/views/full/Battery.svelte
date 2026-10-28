@@ -6,7 +6,7 @@
   import { api } from '../../lib/api'
   import { num, pct, watts, wh } from '../../lib/format'
   import { HISTORY_MINUTES } from '../../lib/history.svelte'
-  import { duration, timeLeftMin } from '../../lib/battery'
+  import { chargeTargetPct, duration, timeLeftMin, timeToFullMin } from '../../lib/battery'
   import { chargeCfgLabel, PROFILE_LABEL } from '../../lib/labels'
   import { live } from '../../lib/telemetry.svelte'
   import { errorText, toasts } from '../../lib/toasts.svelte'
@@ -35,6 +35,10 @@
   const wPoints = $derived(samples.map((s) => ({ t: s.tsMs, v: s.batteryW })))
 
   const timeLeft = $derived(battery?.state === 'discharging' ? timeLeftMin(samples, battery.remainingMwh) : null)
+  const targetPct = $derived(app?.charge ? chargeTargetPct(app.charge) : 100)
+  const targetMwh = $derived(battery?.fullMwh != null ? (battery.fullMwh * targetPct) / 100 : null)
+  const charging = $derived(battery?.state === 'charging' && targetMwh != null && battery.remainingMwh < targetMwh)
+  const timeToFull = $derived(charging ? timeToFullMin(samples, battery!.remainingMwh, targetMwh!) : null)
 
   // Daily capacity as bars, relative to the factory capacity.
   const healthMax = $derived(Math.max(...health.map((h) => h.designMwh), 1))
@@ -66,6 +70,12 @@
       <div><dt>Power</dt><dd class="num">{watts(battery?.powerW)}</dd></div>
       {#if battery?.state === 'discharging'}
         <div><dt>Time left</dt><dd class="num">{timeLeft == null ? 'Estimating…' : duration(timeLeft)}</dd></div>
+      {:else if charging}
+        <div>
+          <dt>Time to {targetPct === 100 ? 'full' : `${targetPct}%`}</dt>
+          <dd class="num">{timeToFull == null ? 'Estimating…' : duration(timeToFull)}</dd>
+          <span class="vary secondary">may vary</span>
+        </div>
       {/if}
     </dl>
   </Card>
@@ -137,6 +147,10 @@
   dt {
     font-size: 12px;
     color: var(--text-2);
+  }
+
+  .vary {
+    font-size: 11px;
   }
 
   dd {
