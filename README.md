@@ -18,12 +18,12 @@ in a tray app built for Windows 11. No bloat, no telemetry.
 ![Tauri 2](https://img.shields.io/badge/Tauri%202-24C8DB?style=flat-square&logo=tauri&logoColor=white)
 ![Rust](https://img.shields.io/badge/Rust-000000?style=flat-square&logo=rust&logoColor=white)
 ![Svelte 5](https://img.shields.io/badge/Svelte%205-FF3E00?style=flat-square&logo=svelte&logoColor=white)
-[![Co-authored with Claude Opus 5.5](https://img.shields.io/badge/co--authored%20with-Claude%20Opus%205.5-D97757?style=flat-square&logo=anthropic&logoColor=white)](#-credits)
+[![Co-authored with Claude Opus 5.5](https://img.shields.io/badge/co--authored%20with-Claude%20Opus%205.5-D97757?style=flat-square&logo=anthropic&logoColor=white)](#credits)
 
 [**Download**](https://github.com/al3ksh/MyStation/releases/latest) ·
-[Features](#-features) ·
-[Requirements](#-requirements) ·
-[Build](#-build-from-source) ·
+[Features](#features) ·
+[Requirements](#requirements) ·
+[Build](#build-from-source) ·
 [Changelog](CHANGELOG.md)
 
 <br>
@@ -34,7 +34,7 @@ in a tray app built for Windows 11. No bloat, no telemetry.
 
 ---
 
-## ✨ Why MyStation
+## Why MyStation
 
 Dell Optimizer and SupportAssist do the job, but they come with services,
 pop-ups and telemetry. MyStation does the everyday part — charge limits,
@@ -44,21 +44,21 @@ thermal modes, health and power stats — in a 2 MB installer.
 <tr>
 <td width="33%" valign="top">
 
-### ⚡ Fast
+### Fast
 Rust underneath, opens from the tray at once. Reading GPU stats never
 wakes a sleeping NVIDIA card, so it doesn't cost you battery.
 
 </td>
 <td width="33%" valign="top">
 
-### 🪟 Native look
+### Native look
 Acrylic flyout, Mica window, Segoe Fluent icons. It looks like part of
 Windows 11, not a web page.
 
 </td>
 <td width="33%" valign="top">
 
-### 🔒 Private
+### Private
 No accounts, no telemetry, no network calls except checking GitHub for
 signed updates.
 
@@ -70,7 +70,7 @@ The app takes the name of the laptop it runs on: **MyPrecision** on a
 Precision, **MyXPS** on an XPS, **MyLatitude** on a Latitude, and
 **MyStation** on anything else.
 
-## 🧭 Features
+## Features
 
 ### Tray flyout
 Click the tray icon for charge, power draw and temperatures. Switch the
@@ -79,37 +79,38 @@ level live.
 
 | Battery profile | Charge range | For |
 |-----------------|--------------|-----|
-| 🖥️ **Desk**     | 75–80%       | Plugged in most of the day |
-| 🎒 **Remote**   | up to 100%   | Before you head out |
-| 📦 **Storage**  | 50–60%       | Laptop sitting unused for a while |
+| **Desk**     | 75–80%       | Plugged in most of the day |
+| **Remote**   | up to 100%   | Before you head out |
+| **Storage**  | 50–60%       | Laptop sitting unused for a while |
 
 **Thermal modes:** Optimized · Cool · Quiet · Ultra Performance
 
 ### Full window
 
 <p align="center">
-  <img src="docs/screenshots/overview.png" width="32%" alt="Overview page">
-  <img src="docs/screenshots/battery.png" width="32%" alt="Battery page">
-  <img src="docs/screenshots/performance.png" width="32%" alt="Performance page">
+  <img src="docs/screenshots/overview.png" width="49%" alt="Overview page">
+  <img src="docs/screenshots/battery.png" width="49%" alt="Battery page">
+  <img src="docs/screenshots/performance.png" width="49%" alt="Performance page">
+  <img src="docs/screenshots/spec.png" width="49%" alt="Spec page">
 </p>
 
 | Page | What you get |
 |------|--------------|
-| 🏠 **Overview** | What the machine is doing right now. |
-| 🔋 **Battery** | Health, factory vs. current capacity, wear history, charge and power charts. Time left on battery, time to the charge limit, and how long you've been unplugged. |
-| 📈 **Performance** | Load of every part — CPU, GPU, memory, each drive — with the actual CPU clock and when the firmware holds it back. |
-| 🌡️ **Sensors** | Every temperature and fan, plus a **sensor monitor**: one table with every reading and its min and max, hot values in red. |
-| 🔌 **Power** | Integrated vs. NVIDIA graphics, a per-app graphics choice (Auto / Integrated / NVIDIA), battery use by app, sleep drain. |
-| 🧩 **Hardware** | Drive health and wear forecast, startup apps and boot time, USB devices and their speed, displays and what they could run at. |
-| 📋 **Spec** | The processor, memory, graphics, storage, screen, Wi-Fi, Thunderbolt, TPM — read from the laptop itself. |
-| 🤖 **Automation** | Routines: when you join a Wi-Fi network, plug in or unplug, connect a display or Bluetooth device, drop below a battery level, stay plugged in for days, or at a set time — switch the thermal mode, battery profile and Windows power mode. |
-| 🛠️ **BIOS** | Read and change supported BIOS options. |
-| ⚙️ **Settings** | Autostart and updates. |
+| **Overview** | What the machine is doing right now. |
+| **Battery** | Health, factory vs. current capacity, wear history, charge and power charts. Time left on battery, time to the charge limit, and how long you've been unplugged. |
+| **Performance** | Load of every part — CPU, GPU, memory, each drive — with the actual CPU clock and when the firmware holds it back. |
+| **Sensors** | Every temperature and fan, plus a **sensor monitor**: one table with every reading and its min and max, hot values in red. |
+| **Power** | Integrated vs. NVIDIA graphics, a per-app graphics choice (Auto / Integrated / NVIDIA), battery use by app, sleep drain. |
+| **Hardware** | Drive health and wear forecast, startup apps and boot time, USB devices and their speed, displays and what they could run at. |
+| **Spec** | The processor, memory, graphics, storage, screen, Wi-Fi, Thunderbolt, TPM — read from the laptop itself. |
+| **Automation** | Routines: when you join a Wi-Fi network, plug in or unplug, connect a display or Bluetooth device, drop below a battery level, stay plugged in for days, or at a set time — switch the thermal mode, battery profile and Windows power mode. |
+| **BIOS** | Read and change supported BIOS options. |
+| **Settings** | Autostart and updates. |
 
 **Signed updates.** New versions come from GitHub Releases, are verified
 against the app's signing key and install in the background.
 
-## 📋 Requirements
+## Requirements
 
 - **Windows 11** (Windows 10 may work but is untested).
 - A **Dell laptop** supported by Dell Command | Configure: Precision, Latitude
@@ -126,7 +127,7 @@ against the app's signing key and install in the background.
 > thermal settings needs them. Autostart registers a scheduled task, so there's
 > no UAC prompt on every boot.
 
-## 📥 Install
+## Install
 
 1. Download `MyStation_x.y.z_x64-setup.exe` from
    [**Releases**](https://github.com/al3ksh/MyStation/releases/latest).
@@ -137,7 +138,7 @@ against the app's signing key and install in the background.
 > MyStation alongside; on first start MyStation moves the sign-in task over and
 > quietly removes the old install. Settings and history are kept.
 
-## 🛠️ Build from source
+## Build from source
 
 You need [Node.js](https://nodejs.org) 20+, [Rust](https://rustup.rs) (stable,
 edition 2024) and the
@@ -198,13 +199,13 @@ and is never committed.
 
 </details>
 
-## 🤝 Credits
+## Credits
 
 Built by [Aleks Szotek](https://github.com/al3ksh), co-authored with
 **Claude Opus 5.5** by [Anthropic](https://www.anthropic.com).
 Developed and tested on a Dell Precision 5560 (Intel + NVIDIA T1200).
 
-## ⚖️ Disclaimer
+## Disclaimer
 
 MyStation is an independent project. It is not affiliated with, endorsed by
 or supported by Dell Technologies. Dell, Precision, Latitude, XPS, Dell
