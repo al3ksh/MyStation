@@ -6,6 +6,7 @@
   import { api } from '../../lib/api'
   import { num, pct, watts, wh } from '../../lib/format'
   import { HISTORY_MINUTES } from '../../lib/history.svelte'
+  import { duration, timeLeftMin } from '../../lib/battery'
   import { chargeCfgLabel, PROFILE_LABEL } from '../../lib/labels'
   import { live } from '../../lib/telemetry.svelte'
   import { errorText, toasts } from '../../lib/toasts.svelte'
@@ -32,6 +33,8 @@
   const battery = $derived(live.telemetry?.battery ?? live.app?.battery ?? null)
   const pctPoints = $derived(samples.map((s) => ({ t: s.tsMs, v: s.batteryPct })))
   const wPoints = $derived(samples.map((s) => ({ t: s.tsMs, v: s.batteryW })))
+
+  const timeLeft = $derived(battery?.state === 'discharging' ? timeLeftMin(samples, battery.remainingMwh) : null)
 
   // Daily capacity as bars, relative to the factory capacity.
   const healthMax = $derived(Math.max(...health.map((h) => h.designMwh), 1))
@@ -61,6 +64,9 @@
       {/if}
       <div><dt>Voltage</dt><dd class="num">{num(battery?.voltageV, 2, ' V')}</dd></div>
       <div><dt>Power</dt><dd class="num">{watts(battery?.powerW)}</dd></div>
+      {#if battery?.state === 'discharging'}
+        <div><dt>Time left</dt><dd class="num">{timeLeft == null ? 'Estimating…' : duration(timeLeft)}</dd></div>
+      {/if}
     </dl>
   </Card>
 

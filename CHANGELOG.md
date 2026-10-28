@@ -8,6 +8,8 @@ no section here.
 
 - Performance shows the CPU's actual clock next to its load, and "Limited to
   …%" while the firmware holds the CPU below full performance.
+- Battery → Health shows the time left on battery, from the average draw of
+  the last five minutes since unplugging.
 
 ## 0.7.0 — 2026-10-27
 

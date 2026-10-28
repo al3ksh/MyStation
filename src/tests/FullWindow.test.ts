@@ -160,6 +160,23 @@ describe('FullWindow', () => {
     expect(screen.getByText('214')).toBeTruthy()
   })
 
+  test('time left is estimated on battery', async () => {
+    route(appState())
+    render(FullWindow)
+    await openBattery()
+    expect(await screen.findByText('Time left')).toBeTruthy()
+    expect(screen.getByText('Estimating…')).toBeTruthy()
+  })
+
+  test('time left hidden while charging', async () => {
+    const s = appState()
+    route({ ...s, battery: { ...s.battery!, state: 'charging', powerW: 18.7 } })
+    render(FullWindow)
+    await openBattery()
+    expect(await screen.findByText('Wear')).toBeTruthy()
+    expect(screen.queryByText('Time left')).toBeNull()
+  })
+
   test('wear shows "13.6%" for wearPct 13.6', async () => {
     const s = appState()
     route({ ...s, battery: { ...s.battery!, wearPct: 13.6 } })
