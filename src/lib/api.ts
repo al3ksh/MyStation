@@ -45,5 +45,5 @@ export const api = {
   windowReady: () => invoke<void>('window_ready'),
   getRecords: () => invoke<Records>('get_records'),
   /** The records window, over the main window. */
-  openRecords: () => invoke<void>('open_records'),
+  openMonitor: () => invoke<void>('open_monitor'),
 }

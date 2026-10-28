@@ -1,11 +1,11 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Permissions for the flyout, full window and records",
+  "description": "Permissions for the flyout, full window and sensor monitor",
   "windows": [
     "flyout",
     "main",
-    "records"
+    "monitor"
   ],
   "permissions": [
     "core:default",

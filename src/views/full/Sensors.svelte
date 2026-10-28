@@ -1,9 +1,12 @@
 <script lang="ts">
   import Card from '../../components/Card.svelte'
+  import Icon from '../../components/Icon.svelte'
   import LineChart from '../../components/LineChart.svelte'
+  import { api } from '../../lib/api'
   import { num, rpm, temp } from '../../lib/format'
   import { HISTORY_MINUTES } from '../../lib/history.svelte'
   import { live } from '../../lib/telemetry.svelte'
+  import { errorText, toasts } from '../../lib/toasts.svelte'
   import type { HistorySample } from '../../lib/types'
 
   let { samples }: { samples: HistorySample[] } = $props()
@@ -21,6 +24,11 @@
 </script>
 
 <div class="stack">
+  <!-- Every reading in one table, in a window of its own that can stay open beside others. -->
+  <button type="button" class="btn" onclick={() => api.openMonitor().catch((e) => toasts.push(errorText(e)))}>
+    <Icon name="openWindow" /> Open sensor monitor
+  </button>
+
   <div class="tiles">
     <div class="tile"><span class="name">Memory module</span><span class="value num">{temp(t?.dimmC)}</span></div>
     <div class="tile"><span class="name">Chassis</span><span class="value num">{temp(t?.skinC)}</span></div>
@@ -53,6 +61,23 @@
     display: grid;
     gap: 12px;
     max-width: 880px;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-self: start;
+    gap: 8px;
+    height: 32px;
+    padding: 0 14px;
+    background: var(--surface-hover);
+    border: 1px solid var(--border);
+    border-radius: var(--r-ctl);
+    cursor: default;
+  }
+
+  .btn:hover {
+    background: var(--surface-raised);
   }
 
   .tiles {

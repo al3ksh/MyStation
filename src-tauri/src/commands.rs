@@ -160,8 +160,8 @@ pub fn open_full_window(app: AppHandle, section: Option<String>) {
 }
 
 #[tauri::command(async)]
-pub fn open_records(app: AppHandle) {
-    crate::windows::open_records(&app);
+pub fn open_monitor(app: AppHandle) {
+    crate::windows::open_monitor(&app);
 }
 
 #[tauri::command]

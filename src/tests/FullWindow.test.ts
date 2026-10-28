@@ -81,7 +81,7 @@ function route(
     if (cmd === 'get_history' || cmd === 'get_health_log') return Promise.resolve([])
     if (cmd === 'set_autostart') return Promise.resolve(args?.enabled ?? false)
     if (cmd === 'window_ready') return Promise.resolve(onReady())
-    if (cmd === 'open_records') return Promise.resolve()
+    if (cmd === 'open_monitor') return Promise.resolve()
     if (cmd === 'get_app_name') return Promise.resolve('MyXPS')
     if (cmd === 'get_device_info')
       return Promise.resolve({
@@ -213,12 +213,19 @@ describe('FullWindow', () => {
     expect(await screen.findByText('13.6%')).toBeTruthy()
   })
 
-  test('Records opens the records window', async () => {
+  test('Sensors opens the sensor monitor', async () => {
+    route(appState())
+    render(FullWindow)
+    await open('Sensors')
+    await fireEvent.click(screen.getByRole('button', { name: 'Open sensor monitor' }))
+    expect(invoke).toHaveBeenCalledWith('open_monitor')
+  })
+
+  test('the sensor monitor stays out of the navigation', async () => {
     route(appState())
     render(FullWindow)
     await loaded()
-    await fireEvent.click(screen.getByRole('button', { name: 'Records' }))
-    expect(invoke).toHaveBeenCalledWith('open_records')
+    expect(screen.queryByRole('button', { name: 'Records' })).toBeNull()
   })
 
   test('navigation lists every section', async () => {
