@@ -4,7 +4,7 @@ Each release's section becomes its GitHub Release notes and the notes the
 in-app updater shows. `npm run release` refuses to publish a version that has
 no section here.
 
-## Unreleased
+## 0.8.0 — 2026-10-28
 
 - Performance shows the CPU's actual clock next to its load, and "Limited to
   …%" while the firmware holds the CPU below full performance.
