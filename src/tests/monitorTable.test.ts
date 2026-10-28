@@ -34,7 +34,7 @@ const row = (gs: ReturnType<typeof groups>, group: string, label: string) =>
 describe('monitor groups', () => {
   test('reads every sensor into its group', () => {
     const gs = groups(T, null, 0)
-    expect(gs.map((g) => g.name)).toEqual(['CPU', 'GPU', 'Fans', 'Memory', 'Chassis', 'Samsung PM9A1', 'Battery'])
+    expect(gs.map((g) => g.name)).toEqual(['CPU', 'CPU threads', 'GPU', 'Fans', 'Memory', 'Chassis', 'Samsung PM9A1', 'Battery'])
     expect(row(gs, 'CPU', 'Temperature').value).toBe(54)
     expect(row(gs, 'CPU', 'Clock').show(1972)).toBe('1,972 MHz')
     expect(row(gs, 'CPU', 'Power').value).toBe(4.2)
@@ -53,8 +53,8 @@ describe('monitor groups', () => {
 
   test('every logical processor has its own load row', () => {
     const gs = groups(T, null, 0)
-    expect(row(gs, 'CPU', 'CPU 0').value).toBe(12.5)
-    expect(row(gs, 'CPU', 'CPU 1').value).toBe(3)
+    expect(row(gs, 'CPU threads', 'CPU 0').value).toBe(12.5)
+    expect(row(gs, 'CPU threads', 'CPU 1').value).toBe(3)
   })
 
   test('each drive is a group with its temperature and activity', () => {
@@ -70,11 +70,11 @@ describe('monitor groups', () => {
   test('drives without a model or with the same one keep apart', () => {
     const d = T.drives[0]
     const gs = groups({ ...T, drives: [d, { ...d, index: 1 }, { ...d, index: 2, model: null }] }, null, 0)
-    expect(gs.map((g) => g.name).slice(5, 8)).toEqual(['Samsung PM9A1 (Disk 0)', 'Samsung PM9A1 (Disk 1)', 'Disk 2'])
+    expect(gs.map((g) => g.name).slice(6, 9)).toEqual(['Samsung PM9A1 (Disk 0)', 'Samsung PM9A1 (Disk 1)', 'Disk 2'])
   })
 
   test('each group has an icon', () => {
-    expect(groups(T, null, 0).map((g) => g.icon)).toEqual(['cpu', 'gpu', 'fan', 'memory', 'laptop', 'drive', 'battery'])
+    expect(groups(T, null, 0).map((g) => g.icon)).toEqual(['cpu', 'cpu', 'gpu', 'fan', 'memory', 'laptop', 'drive', 'battery'])
   })
 
   test('temperatures run hot past the limit of their part', () => {

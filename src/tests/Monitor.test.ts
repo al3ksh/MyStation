@@ -12,13 +12,15 @@ vi.mock('@tauri-apps/api/event', () => ({
   },
 }))
 
+import { fireEvent } from '@testing-library/svelte'
+
 const { default: Monitor } = await import('../views/Monitor.svelte')
 const { live } = await import('../lib/telemetry.svelte')
 
 const T: Telemetry = {
   tsMs: 0,
   battery: null,
-  cpu: { loadPct: 7, tempC: 54, clockMhz: 1972, limitPct: null, coreLoads: [] },
+  cpu: { loadPct: 7, tempC: 54, clockMhz: 1972, limitPct: null, coreLoads: [12, 30] },
   gpu: { state: 'asleep' },
   fans: [{ name: 'CPU fan', rpm: 2400 }],
   mem: null,
@@ -47,6 +49,7 @@ function cells(group: string, label: string) {
 const texts = (group: string, label: string) => cells(group, label).map((c) => c.textContent?.trim())
 
 beforeEach(() => {
+  localStorage.clear()
   invoke.mockReset()
   route()
 })
@@ -103,5 +106,38 @@ describe('Monitor', () => {
     render(Monitor)
     await waitFor(() => expect(texts('CPU', 'Temperature')[1]).toBe('54 °C'))
     expect(screen.queryByText(/window opened|recorded/)).toBeNull()
+  })
+
+  test('a group folds away and back from its header', async () => {
+    render(Monitor)
+    await waitFor(() => expect(texts('CPU', 'Temperature')[1]).toBe('54 °C'))
+    const toggle = screen.getByRole('button', { name: 'CPU' })
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    await fireEvent.click(toggle)
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    expect(screen.queryByText('Clock')).toBeNull()
+    await fireEvent.click(toggle)
+    expect(screen.getByText('Clock')).toBeTruthy()
+  })
+
+  test('the load of each thread starts folded, and stays as left on the next open', async () => {
+    const { unmount } = render(Monitor)
+    await waitFor(() => expect(texts('CPU', 'Temperature')[1]).toBe('54 °C'))
+    const threads = screen.getByRole('button', { name: 'CPU threads' })
+    expect(threads.getAttribute('aria-expanded')).toBe('false')
+    expect(screen.queryByText('CPU 0')).toBeNull()
+    await fireEvent.click(threads)
+    expect(texts('CPU threads', 'CPU 1')[1]).toBe('30%')
+    unmount()
+    render(Monitor)
+    await waitFor(() => expect(texts('CPU threads', 'CPU 0')[1]).toBe('12%'))
+  })
+
+  test('the column headers sit outside the scrolling rows', async () => {
+    const { container } = render(Monitor)
+    await waitFor(() => expect(texts('CPU', 'Temperature')[1]).toBe('54 °C'))
+    const scroller = container.querySelector('.rows')!
+    expect(scroller.textContent).toContain('Temperature')
+    expect(scroller.contains(screen.getByRole('columnheader', { name: 'Sensor' }))).toBe(false)
   })
 })

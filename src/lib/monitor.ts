@@ -60,8 +60,12 @@ export function groups(t: Telemetry | null, app: AppState | null, nowMs: number)
         { label: 'Load', value: t?.cpu.loadPct ?? null, show: pct },
         { label: 'Clock', value: t?.cpu.clockMhz ?? null, show: mhz },
         { label: 'Power', value: t?.power?.cpuW ?? null, show: watts },
-        ...(t?.cpu.coreLoads ?? []).map((v, i) => ({ label: `CPU ${i}`, value: v, show: pct })),
       ],
+    },
+    {
+      name: 'CPU threads',
+      icon: 'cpu',
+      rows: (t?.cpu.coreLoads ?? []).map((v, i) => ({ label: `CPU ${i}`, value: v, show: pct })),
     },
     {
       name: 'GPU',

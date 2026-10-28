@@ -21,6 +21,8 @@ no section here.
   rates) and the battery (charge, charge and discharge rate, voltage,
   remaining, full and design capacity, wear level, cycles, time on battery).
   Each part has its icon, and a temperature that runs hot shows in red.
+  Click a part to fold it away; the load of each thread starts folded, and
+  the window remembers what you fold.
 - Sensors shows the temperature of every part — CPU, GPU, memory, chassis and
   each drive — with charts of the CPU and GPU temperatures.
 - Performance shows the load of each part: the CPU, the GPU with its clock and
