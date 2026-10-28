@@ -12,6 +12,9 @@ pub use crate::power::{PowerFlow, PowerWindow, power_flow};
 pub struct CpuSnapshot {
     pub load_pct: Option<f32>,
     pub temp_c: Option<f32>,
+    pub clock_mhz: Option<u32>,
+    /// The firmware's performance cap; `None` while the CPU runs uncapped.
+    pub limit_pct: Option<f32>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]

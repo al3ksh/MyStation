@@ -149,7 +149,7 @@ mod tests {
                 cycles: None,
                 voltage_v: 12.0,
             }),
-            cpu: CpuSnapshot { load_pct: Some(12.0), temp_c: Some(55.0) },
+            cpu: CpuSnapshot { load_pct: Some(12.0), temp_c: Some(55.0), ..Default::default() },
             gpu: GpuSnapshot::Active { temp_c: 60, load_pct: 3 },
             fans: vec![],
             mem: None,

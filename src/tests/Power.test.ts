@@ -13,7 +13,7 @@ function withPower(power: PowerFlow | null, gpu: Telemetry['gpu'] = { state: 'as
   live.telemetry = {
     tsMs: 0,
     battery: null,
-    cpu: { loadPct: 7, tempC: 54 },
+    cpu: { loadPct: 7, tempC: 54, clockMhz: 1972, limitPct: null },
     gpu,
     fans: [],
     mem: null,

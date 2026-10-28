@@ -4,6 +4,7 @@ pub mod profile;
 pub mod config;
 pub mod battery;
 pub mod cpu_load;
+pub mod cpu_perf;
 pub mod display;
 pub mod dcim;
 pub mod sensors;

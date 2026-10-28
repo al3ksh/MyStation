@@ -56,7 +56,7 @@ function telemetry(over: Partial<Telemetry> = {}): Telemetry {
   return {
     tsMs: 0,
     battery: null,
-    cpu: { loadPct: 7, tempC: 54 },
+    cpu: { loadPct: 7, tempC: 54, clockMhz: 1972, limitPct: null },
     gpu: { state: 'active', tempC: 60, loadPct: 3 },
     fans: [
       { name: 'CPU', rpm: 2100 },

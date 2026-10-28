@@ -59,7 +59,7 @@ function appState(over: Partial<AppState> = {}): AppState {
 const TELEMETRY: Telemetry = {
   tsMs: 0,
   battery: null,
-  cpu: { loadPct: 7, tempC: 54 },
+  cpu: { loadPct: 7, tempC: 54, clockMhz: 1972, limitPct: null },
   gpu: { state: 'active', tempC: 60, loadPct: 3 },
   fans: [],
   mem: { usedMb: 10240, totalMb: 32768 },
@@ -203,6 +203,16 @@ describe('FullWindow', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'Performance' })).toBeTruthy()
     expect(screen.getByRole('radiogroup', { name: 'Thermal mode' })).toBeTruthy()
     expect(screen.queryByRole('radiogroup', { name: 'Battery profile' })).toBeNull()
+  })
+
+  test('performance page shows the CPU clock, and the cap only while it holds', async () => {
+    route(appState())
+    render(FullWindow)
+    await open('Performance')
+    expect(screen.getByText('1.97 GHz')).toBeTruthy()
+    expect(screen.queryByText(/Limited to/)).toBeNull()
+    live.telemetry = { ...TELEMETRY, cpu: { ...TELEMETRY.cpu, limitPct: 72 } }
+    expect(await screen.findByText('Limited to 72%')).toBeTruthy()
   })
 
   test('settings page shows the version and BIOS', async () => {

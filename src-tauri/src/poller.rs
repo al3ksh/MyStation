@@ -20,7 +20,7 @@ use mystation_core::sensors::{
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_notification::NotificationExt;
 
-use crate::platform::{self, CpuPowerReader, GpuReader, WmiReaders};
+use crate::platform::{self, CpuPerfReader, CpuPowerReader, GpuReader, WmiReaders};
 use crate::state::{Core, PollMode};
 use crate::sync::LockExt;
 
@@ -42,6 +42,7 @@ struct Poller {
     wmi: Option<WmiReaders>,
     gpu: GpuReader,
     cpu_power: Option<CpuPowerReader>,
+    cpu_perf: Option<CpuPerfReader>,
     power_window: PowerWindow,
     /// Refreshed on the slow tick: adapters get swapped.
     adapter_w: Option<u32>,
@@ -70,6 +71,7 @@ impl Poller {
             wmi,
             gpu: GpuReader::new(),
             cpu_power: CpuPowerReader::new(),
+            cpu_perf: CpuPerfReader::new(),
             power_window: PowerWindow::default(),
             adapter_w: None,
             cpu_prev: platform::cpu_times(),
@@ -98,6 +100,9 @@ impl Poller {
                     } else if mode == PollMode::Idle {
                         self.cpu_prev = platform::cpu_times();
                         if let Some(r) = &mut self.cpu_power {
+                            r.read();
+                        }
+                        if let Some(r) = &mut self.cpu_perf {
                             r.read();
                         }
                         std::thread::sleep(LOAD_BASELINE);
@@ -146,6 +151,7 @@ impl Poller {
         let gpu = self.gpu.read();
         let battery = raw.map(battery_from_raw);
         let cpu_w = self.cpu_power.as_mut().and_then(CpuPowerReader::read);
+        let (clock_mhz, limit_pct) = self.cpu_perf.as_mut().map_or((None, None), CpuPerfReader::read);
         let gpu_w = self.gpu.power_w(&gpu);
         let power = battery.as_ref().map(|b| {
             let (cpu_w, gpu_w) = self.power_window.align(b, cpu_w, gpu_w);
@@ -154,7 +160,7 @@ impl Poller {
         let telemetry = Telemetry {
             ts_ms: Local::now().timestamp_millis(),
             battery,
-            cpu: CpuSnapshot { load_pct: load, temp_c: dcim.cpu_c },
+            cpu: CpuSnapshot { load_pct: load, temp_c: dcim.cpu_c, clock_mhz, limit_pct },
             gpu,
             fans: dcim.fans,
             mem: platform::mem(),

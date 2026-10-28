@@ -90,7 +90,7 @@ export type PowerFlow =
 export interface Telemetry {
   tsMs: number
   battery: BatterySnapshot | null
-  cpu: { loadPct: number | null; tempC: number | null }
+  cpu: { loadPct: number | null; tempC: number | null; clockMhz: number | null; limitPct: number | null }
   gpu: GpuSnapshot
   fans: FanReading[]
   mem: { usedMb: number; totalMb: number } | null

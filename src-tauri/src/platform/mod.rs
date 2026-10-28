@@ -2,6 +2,7 @@
 
 mod cctk_exec;
 pub mod console;
+mod cpu_perf;
 mod cpu_times;
 pub mod display;
 mod energy_meter;
@@ -26,6 +27,7 @@ mod wmi_battery;
 mod wmi_dcim;
 
 pub use cctk_exec::ExeCctkRunner;
+pub use cpu_perf::CpuPerfReader;
 pub use cpu_times::cpu_times;
 pub use energy_meter::CpuPowerReader;
 pub use gpu_power::{DevicePower, NvidiaAdapter, nvidia_adapter, nvidia_power_state};
