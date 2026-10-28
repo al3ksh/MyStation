@@ -11,7 +11,7 @@ use mystation_core::config::{self, Config};
 use mystation_core::dell::{Cctk, ChargeCfg, ThermalMode};
 use mystation_core::history::{HealthLog, History};
 use mystation_core::power_mode::PowerMode;
-use mystation_core::records::{BatteryStint, RecordsLog};
+use mystation_core::power_source::BatteryStint;
 use mystation_core::profile::{ActiveProfile, Profiles, detect};
 use mystation_core::sensors::{BatterySnapshot, Telemetry};
 use serde::Serialize;
@@ -64,7 +64,6 @@ pub struct Core {
     pub config: Mutex<Config>,
     pub history: Mutex<History>,
     pub health: Mutex<HealthLog>,
-    pub records: Mutex<RecordsLog>,
     pub snapshot: Mutex<AppState>,
     /// Last telemetry sample while a window is open, so a window can paint it before the next tick.
     pub telemetry: Mutex<Option<Telemetry>>,
@@ -127,7 +126,6 @@ impl Core {
             config: Mutex::new(config),
             history: Mutex::new(History::new()),
             health: Mutex::new(HealthLog::open(&data_dir().join("battery-health.json"))),
-            records: Mutex::new(RecordsLog::open(&data_dir().join("records.json"))),
             snapshot: Mutex::new(snapshot),
             telemetry: Mutex::default(),
             automation: Mutex::new(automation::load_state(&crate::automation::state_path())),

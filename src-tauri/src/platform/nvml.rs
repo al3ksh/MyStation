@@ -14,9 +14,14 @@ type HandleFn = unsafe extern "C" fn(u32, *mut Device) -> i32;
 type TempFn = unsafe extern "C" fn(Device, u32, *mut u32) -> i32;
 type UtilFn = unsafe extern "C" fn(Device, *mut Utilization) -> i32;
 type PowerFn = unsafe extern "C" fn(Device, *mut u32) -> i32;
+type ClockFn = unsafe extern "C" fn(Device, u32, *mut u32) -> i32;
+type MemoryFn = unsafe extern "C" fn(Device, *mut Memory) -> i32;
 
 const NVML_SUCCESS: i32 = 0;
 const NVML_TEMPERATURE_GPU: u32 = 0;
+const NVML_CLOCK_GRAPHICS: u32 = 0;
+const NVML_CLOCK_MEM: u32 = 2;
+const MIB: u64 = 1024 * 1024;
 
 #[repr(C)]
 #[derive(Default)]
@@ -25,12 +30,23 @@ struct Utilization {
     memory: u32,
 }
 
+/// `nvmlMemory_t`, in bytes.
+#[repr(C)]
+#[derive(Default)]
+struct Memory {
+    total: u64,
+    free: u64,
+    used: u64,
+}
+
 pub struct Nvml {
     shutdown: InitFn,
     temperature: TempFn,
     utilization: UtilFn,
     /// Missing on drivers and boards that don't report board power.
     power: Option<PowerFn>,
+    clock: Option<ClockFn>,
+    memory: Option<MemoryFn>,
     device: Device,
     // Keeps the function pointers above valid; dropped last.
     _lib: Library,
@@ -47,6 +63,8 @@ impl Nvml {
             let temperature: TempFn = *lib.get(b"nvmlDeviceGetTemperature\0").ok()?;
             let utilization: UtilFn = *lib.get(b"nvmlDeviceGetUtilizationRates\0").ok()?;
             let power: Option<PowerFn> = lib.get(b"nvmlDeviceGetPowerUsage\0").ok().map(|f| *f);
+            let clock: Option<ClockFn> = lib.get(b"nvmlDeviceGetClockInfo\0").ok().map(|f| *f);
+            let memory: Option<MemoryFn> = lib.get(b"nvmlDeviceGetMemoryInfo\0").ok().map(|f| *f);
             if init() != NVML_SUCCESS {
                 return None;
             }
@@ -55,12 +73,12 @@ impl Nvml {
                 shutdown();
                 return None;
             }
-            Some(Self { shutdown, temperature, utilization, power, device, _lib: lib })
+            Some(Self { shutdown, temperature, utilization, power, clock, memory, device, _lib: lib })
         }
     }
 
-    /// `(temperature °C, utilization %)`.
-    pub fn read(&self) -> Option<(u32, u32)> {
+    /// Temperature and utilization, plus the clocks and memory where the driver reports them.
+    pub fn read(&self) -> Option<GpuSnapshot> {
         let mut temp = 0;
         let mut util = Utilization::default();
         // SAFETY: `device` came from a successful nvmlDeviceGetHandleByIndex_v2 and NVML is initialized.
@@ -71,7 +89,30 @@ impl Nvml {
                 return None;
             }
         }
-        Some((temp, util.gpu))
+        let (vram_used_mb, vram_total_mb) = self.memory_mb().unzip();
+        Some(GpuSnapshot::Active {
+            temp_c: temp,
+            load_pct: util.gpu,
+            clock_mhz: self.clock_mhz(NVML_CLOCK_GRAPHICS),
+            mem_clock_mhz: self.clock_mhz(NVML_CLOCK_MEM),
+            vram_used_mb,
+            vram_total_mb,
+        })
+    }
+
+    fn clock_mhz(&self, kind: u32) -> Option<u32> {
+        let mut mhz = 0;
+        // SAFETY: as in `read`; the symbol type matches nvmlDeviceGetClockInfo.
+        let status = unsafe { (self.clock?)(self.device, kind, &mut mhz) };
+        (status == NVML_SUCCESS).then_some(mhz)
+    }
+
+    /// `(used, total)` dedicated memory in MiB.
+    fn memory_mb(&self) -> Option<(u32, u32)> {
+        let mut m = Memory::default();
+        // SAFETY: as in `read`; the symbol type matches nvmlDeviceGetMemoryInfo (the v1 struct).
+        let status = unsafe { (self.memory?)(self.device, &mut m) };
+        (status == NVML_SUCCESS && m.total > 0).then_some(((m.used / MIB) as u32, (m.total / MIB) as u32))
     }
 
     /// Board power draw in watts.
@@ -131,10 +172,7 @@ impl GpuReader {
                     self.nvml = Nvml::load();
                     self.unavailable = self.nvml.is_none();
                 }
-                match self.nvml.as_ref().and_then(Nvml::read) {
-                    Some((temp_c, load_pct)) => GpuSnapshot::Active { temp_c, load_pct },
-                    None => GpuSnapshot::Unavailable,
-                }
+                self.nvml.as_ref().and_then(Nvml::read).unwrap_or(GpuSnapshot::Unavailable)
             }
         }
     }
@@ -167,6 +205,6 @@ mod tests {
         let reader = GpuReader::new();
         assert_eq!(reader.power_w(&GpuSnapshot::Asleep), Some(0.0));
         assert_eq!(reader.power_w(&GpuSnapshot::Unavailable), None);
-        assert_eq!(reader.power_w(&GpuSnapshot::Active { temp_c: 50, load_pct: 0 }), None);
+        assert_eq!(reader.power_w(&GpuSnapshot::active(50, 0)), None);
     }
 }

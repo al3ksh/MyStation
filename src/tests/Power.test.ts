@@ -13,13 +13,14 @@ function withPower(power: PowerFlow | null, gpu: Telemetry['gpu'] = { state: 'as
   live.telemetry = {
     tsMs: 0,
     battery: null,
-    cpu: { loadPct: 7, tempC: 54, clockMhz: 1972, limitPct: null },
+    cpu: { loadPct: 7, tempC: 54, clockMhz: 1972, limitPct: null, coreLoads: [] },
     gpu,
     fans: [],
     mem: null,
     dimmC: null,
     skinC: null,
     power,
+    drives: [],
   }
 }
 
@@ -114,7 +115,7 @@ describe('Power', () => {
   test('on AC the parts are shown with the adapter rating and no total', async () => {
     withPower(
       { source: 'adapter', cpuW: 25, gpuW: 12, intoBatteryW: 33, adapterW: 130 },
-      { state: 'active', tempC: 60, loadPct: 40 },
+      { state: 'active', tempC: 60, loadPct: 40, clockMhz: null, memClockMhz: null, vramUsedMb: null, vramTotalMb: null },
     )
     render(Power)
     const region = screen.getByRole('region', { name: 'Where the power goes' })

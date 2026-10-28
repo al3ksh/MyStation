@@ -7,6 +7,7 @@ const at = (s: number, batteryW: number | null): HistorySample => ({
   cpuTemp: null,
   cpuLoad: null,
   gpuTemp: null,
+  gpuLoad: null,
   batteryPct: null,
   batteryW,
 })

@@ -51,6 +51,7 @@ function appState(over: Partial<AppState> = {}): AppState {
     energySaver: false,
     matchPowerMode: false,
     updateVersion: null,
+    onBatterySince: null,
     ...over,
   }
 }

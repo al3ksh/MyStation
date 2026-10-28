@@ -13,12 +13,19 @@ no section here.
   charge limit (marked "may vary": charging slows near the top).
 - Battery → Health shows how long the laptop has been on battery and how much
   charge it used since unplugging, e.g. "2 h 14 min, −38%".
-- Sensors → Open sensor monitor: a window with every sensor in one table —
-  the current value, the min and max since it opened, and the all-time
-  record with its date: the hottest CPU and GPU, the fastest fan, the highest
-  battery draw and the longest time on battery. The longest time on battery
-  counts back through Windows' own log of plugging in and out; temperatures
-  and fans are recorded while a window is open.
+- Sensors → Open sensor monitor: a window with every sensor in one table,
+  with the current value and the min and max since it opened. It covers the
+  CPU (temperature, load, clock, power and the load of each thread), the GPU
+  (temperature, load, core and memory clocks, video memory used, power), the
+  fans, memory, chassis, each drive (temperature, activity, read and write
+  rates) and the battery (charge, charge and discharge rate, voltage,
+  remaining, full and design capacity, wear level, cycles, time on battery).
+  Each part has its icon, and a temperature that runs hot shows in red.
+- Sensors shows the temperature of every part — CPU, GPU, memory, chassis and
+  each drive — with charts of the CPU and GPU temperatures.
+- Performance shows the load of each part: the CPU, the GPU with its clock and
+  video memory, memory, and each drive's activity with its read and write
+  rates, with charts of the CPU and GPU loads.
 
 ## 0.7.0 — 2026-10-27
 

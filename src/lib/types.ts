@@ -70,22 +70,6 @@ export interface BatteryStint {
   sincePct: number | null
 }
 
-/** A best value and when it happened. */
-export interface RecordEntry {
-  value: number
-  atMs: number
-}
-
-export interface Records {
-  cpuTempC: RecordEntry | null
-  gpuTempC: RecordEntry | null
-  fanRpm: RecordEntry | null
-  /** The laptop's whole draw from the battery, in watts. */
-  batteryDrawW: RecordEntry | null
-  /** Minutes; `atMs` is when that time on battery began. */
-  batteryStintMin: RecordEntry | null
-}
-
 export type PowerMode = 'BestEfficiency' | 'Balanced' | 'BestPerformance'
 
 export type PeripheralKind = 'mouse' | 'keyboard' | 'headphones' | 'speaker' | 'controller' | 'pen' | 'phone' | 'other'
@@ -99,7 +83,15 @@ export interface Peripheral {
 export type GpuSnapshot =
   | { state: 'asleep' }
   | { state: 'unavailable' }
-  | { state: 'active'; tempC: number; loadPct: number }
+  | {
+      state: 'active'
+      tempC: number
+      loadPct: number
+      clockMhz: number | null
+      memClockMhz: number | null
+      vramUsedMb: number | null
+      vramTotalMb: number | null
+    }
 
 export interface FanReading {
   name: string
@@ -114,13 +106,32 @@ export type PowerFlow =
 export interface Telemetry {
   tsMs: number
   battery: BatterySnapshot | null
-  cpu: { loadPct: number | null; tempC: number | null; clockMhz: number | null; limitPct: number | null }
+  cpu: {
+    loadPct: number | null
+    tempC: number | null
+    clockMhz: number | null
+    limitPct: number | null
+    /** Each logical processor's load, in processor order. */
+    coreLoads: number[]
+  }
   gpu: GpuSnapshot
   fans: FanReading[]
   mem: { usedMb: number; totalMb: number } | null
   dimmC: number | null
   skinC: number | null
+  drives: DriveSnapshot[]
   power: PowerFlow | null
+}
+
+export interface DriveSnapshot {
+  /** `\.\PhysicalDrive<index>`. */
+  index: number
+  model: string | null
+  tempC: number | null
+  /** Share of time the disk was busy. */
+  activePct: number | null
+  readBps: number | null
+  writeBps: number | null
 }
 
 export interface HistorySample {
@@ -128,6 +139,7 @@ export interface HistorySample {
   cpuTemp: number | null
   cpuLoad: number | null
   gpuTemp: number | null
+  gpuLoad: number | null
   batteryPct: number | null
   batteryW: number | null
 }

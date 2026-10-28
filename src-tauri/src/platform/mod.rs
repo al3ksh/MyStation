@@ -1,6 +1,7 @@
 //! Windows-specific readers: cctk process, WMI (battery + Dell Command | Monitor), CPU, RAM, system, shell.
 
 mod cctk_exec;
+mod counters;
 pub mod console;
 mod cpu_perf;
 mod cpu_times;
@@ -27,6 +28,7 @@ mod wmi_battery;
 mod wmi_dcim;
 
 pub use cctk_exec::ExeCctkRunner;
+pub use counters::{CounterSample, CountersReader};
 pub use cpu_perf::CpuPerfReader;
 pub use cpu_times::cpu_times;
 pub use energy_meter::CpuPowerReader;

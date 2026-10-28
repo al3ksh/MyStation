@@ -74,7 +74,7 @@
       {/if}
       <div><dt>Voltage</dt><dd class="num">{num(battery?.voltageV, 2, ' V')}</dd></div>
       <div><dt>Power</dt><dd class="num">{watts(battery?.powerW)}</dd></div>
-      {#if stint && battery}
+      {#if stint && battery?.percent != null}
         <div><dt>On battery since</dt><dd class="num">{onBatterySince(stint, now, battery.percent)}</dd></div>
       {/if}
       {#if battery?.state === 'discharging'}

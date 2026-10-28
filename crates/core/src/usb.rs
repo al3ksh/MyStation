@@ -154,7 +154,7 @@ mod tests {
     const AT: i64 = 1_000_000_000;
 
     fn sample(ts_ms: i64, battery_w: Option<f32>) -> HistorySample {
-        HistorySample { ts_ms, cpu_temp: None, cpu_load: None, gpu_temp: None, battery_pct: None, battery_w }
+        HistorySample { ts_ms, cpu_temp: None, cpu_load: None, gpu_temp: None, gpu_load: None, battery_pct: None, battery_w }
     }
 
     /// One sample a second from 70 s before `AT` to 80 s after, drawing `before` W

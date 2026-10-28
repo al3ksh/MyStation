@@ -10,6 +10,7 @@ export function toSample(t: Telemetry): HistorySample {
     cpuTemp: t.cpu.tempC,
     cpuLoad: t.cpu.loadPct,
     gpuTemp: t.gpu.state === 'active' ? t.gpu.tempC : null,
+    gpuLoad: t.gpu.state === 'active' ? t.gpu.loadPct : null,
     batteryPct: t.battery?.percent ?? null,
     batteryW: t.battery?.powerW ?? null,
   }

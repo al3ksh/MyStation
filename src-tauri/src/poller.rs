@@ -10,10 +10,11 @@ use std::time::{Duration, Instant};
 use chrono::Local;
 use mystation_core::automation::Inputs;
 use mystation_core::bluetooth::{self, BtDevice, LowBattery};
+use mystation_core::counters::{DriveInfo, drive_snapshots};
 use mystation_core::display::Connection;
 use mystation_core::history::{HealthEntry, HistorySample};
 use mystation_core::power_mode::SourceWatch;
-use mystation_core::records::{self, BatteryStint, POWER_PROVIDER, POWER_SOURCE_EVENT, PowerSourceEvent};
+use mystation_core::power_source::{self, BatteryStint, POWER_PROVIDER, POWER_SOURCE_EVENT, PowerSourceEvent};
 use mystation_core::sensors::{
     BatteryRaw, CpuSnapshot, CpuTimes, PowerWindow, Telemetry, battery_from_raw, load_between, parse_dcim,
     power_flow,
@@ -21,7 +22,7 @@ use mystation_core::sensors::{
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_notification::NotificationExt;
 
-use crate::platform::{self, CpuPerfReader, CpuPowerReader, GpuReader, WmiReaders};
+use crate::platform::{self, CountersReader, CpuPerfReader, CpuPowerReader, GpuReader, WmiReaders};
 use crate::state::{Core, PollMode};
 use crate::sync::LockExt;
 
@@ -29,6 +30,8 @@ const ACTIVE_INTERVAL: Duration = Duration::from_secs(1);
 const IDLE_INTERVAL: Duration = Duration::from_secs(30);
 /// CPU load is a delta between two samples; after Idle the previous one is stale.
 const LOAD_BASELINE: Duration = Duration::from_millis(250);
+/// Drive names and SMART temperatures change slowly; each read opens every drive.
+const DRIVE_INFO_INTERVAL: Duration = Duration::from_secs(10);
 
 pub fn spawn(app: AppHandle, rx: Receiver<PollMode>) {
     std::thread::Builder::new()
@@ -44,6 +47,9 @@ struct Poller {
     gpu: GpuReader,
     cpu_power: Option<CpuPowerReader>,
     cpu_perf: Option<CpuPerfReader>,
+    counters: Option<CountersReader>,
+    drive_info: Vec<DriveInfo>,
+    last_drive_info: Option<Instant>,
     power_window: PowerWindow,
     /// Refreshed on the slow tick: adapters get swapped.
     adapter_w: Option<u32>,
@@ -71,19 +77,19 @@ impl Poller {
             s.availability.wmi = wmi.is_some();
             s.availability.dcm = dcm;
         });
-        let events = power_source_events();
+        let newest = newest_power_source_event();
         let now = Local::now().timestamp_millis();
-        if let Some(longest) = records::longest_stint(&events) {
-            app.state::<Core>().records.lock_ok().update(|r| r.seed_stint(longest));
-        }
         Self {
-            startup_stint: records::current_stint(events.first(), now - platform::uptime_ms()),
+            startup_stint: power_source::current_stint(newest.as_ref(), now - platform::uptime_ms()),
             on_ac: None,
             app,
             wmi,
             gpu: GpuReader::new(),
             cpu_power: CpuPowerReader::new(),
             cpu_perf: CpuPerfReader::new(),
+            counters: CountersReader::new(),
+            drive_info: Vec::new(),
+            last_drive_info: None,
             power_window: PowerWindow::default(),
             adapter_w: None,
             cpu_prev: platform::cpu_times(),
@@ -115,6 +121,9 @@ impl Poller {
                             r.read();
                         }
                         if let Some(r) = &mut self.cpu_perf {
+                            r.read();
+                        }
+                        if let Some(r) = &mut self.counters {
                             r.read();
                         }
                         std::thread::sleep(LOAD_BASELINE);
@@ -166,6 +175,14 @@ impl Poller {
         let cpu_w = self.cpu_power.as_mut().and_then(CpuPowerReader::read);
         let (clock_mhz, limit_pct) = self.cpu_perf.as_mut().map_or((None, None), CpuPerfReader::read);
         let gpu_w = self.gpu.power_w(&gpu);
+        let counters = self.counters.as_mut().map(CountersReader::read).unwrap_or_default();
+        if self.last_drive_info.is_none_or(|t| t.elapsed() >= DRIVE_INFO_INTERVAL) {
+            self.last_drive_info = Some(Instant::now());
+            self.drive_info = platform::storage::drives()
+                .into_iter()
+                .map(|d| DriveInfo { index: d.index, model: d.identity.model, temp_c: d.smart.and_then(|s| s.temp_c) })
+                .collect();
+        }
         let power = battery.as_ref().map(|b| {
             let (cpu_w, gpu_w) = self.power_window.align(b, cpu_w, gpu_w);
             power_flow(b, cpu_w, gpu_w, self.adapter_w)
@@ -173,17 +190,17 @@ impl Poller {
         let telemetry = Telemetry {
             ts_ms: Local::now().timestamp_millis(),
             battery,
-            cpu: CpuSnapshot { load_pct: load, temp_c: dcim.cpu_c, clock_mhz, limit_pct },
+            cpu: CpuSnapshot { load_pct: load, temp_c: dcim.cpu_c, clock_mhz, limit_pct, core_loads: counters.core_loads },
             gpu,
             fans: dcim.fans,
             mem: platform::mem(),
             dimm_c: dcim.dimm_c,
             skin_c: dcim.skin_c,
+            drives: drive_snapshots(&self.drive_info, &counters.disks),
             power,
         };
         let core = self.app.state::<Core>();
         core.history.lock_ok().push(HistorySample::from(&telemetry));
-        core.records.lock_ok().update(|r| r.observe(&telemetry));
         *core.telemetry.lock_ok() = Some(telemetry.clone());
         let state = core.update(|s| s.battery = telemetry.battery.clone());
         crate::tray::refresh(&self.app, &state, telemetry.cpu.temp_c);
@@ -199,9 +216,6 @@ impl Poller {
         {
             let entry = HealthEntry { date: Local::now().date_naive(), full_mwh, design_mwh, cycles: b.cycles };
             let _ = core.health.lock_ok().record(entry);
-        }
-        if let Err(e) = core.records.lock_ok().flush() {
-            eprintln!("poller: saving records failed: {e}");
         }
         self.adapter_w = self.wmi.as_ref().and_then(WmiReaders::adapter_w);
         let optimizer_running = platform::optimizer_running();
@@ -250,12 +264,12 @@ impl Poller {
         });
     }
 
-    /// The time on battery, and the records the tray-only poll can see: the battery's.
+    /// Since when the laptop runs on battery.
     fn track_battery(&mut self, r: &BatteryRaw) {
-        let core = self.app.state::<Core>();
-        let now = Local::now().timestamp_millis();
-        let battery = battery_from_raw(r);
         if self.on_ac != Some(r.power_online) {
+            let core = self.app.state::<Core>();
+            let now = Local::now().timestamp_millis();
+            let battery = battery_from_raw(r);
             let stint = match self.on_ac {
                 _ if r.power_online => None,
                 None => Some(self.startup_stint),
@@ -265,11 +279,6 @@ impl Poller {
             let state = core.update(|s| s.on_battery_since = stint);
             let _ = self.app.emit("state-changed", &state);
         }
-        let stint = core.state().on_battery_since;
-        core.records.lock_ok().update(|rec| {
-            let stint_moved = stint.is_some_and(|s| rec.observe_stint(&s, now));
-            rec.observe_battery(&battery, now) | stint_moved
-        });
     }
 
     fn warn_low(&self, d: &BtDevice) {
@@ -300,11 +309,11 @@ impl Poller {
     }
 }
 
-/// Plug-in and unplug events, newest first; empty if the log can't be read.
-fn power_source_events() -> Vec<PowerSourceEvent> {
+/// The last plug-in or unplug; `None` if the log can't be read.
+fn newest_power_source_event() -> Option<PowerSourceEvent> {
     let xpath = format!("*[System[Provider[@Name='{POWER_PROVIDER}'] and (EventID={POWER_SOURCE_EVENT})]]");
-    let events = platform::event_log::query("System", &xpath, 500).unwrap_or_default();
-    events.iter().filter_map(|xml| records::power_source_event(xml)).collect()
+    let events = platform::event_log::query("System", &xpath, 1).unwrap_or_default();
+    events.iter().find_map(|xml| power_source::power_source_event(xml))
 }
 
 /// cctk reads go through Dell's SMBIOS calls, which freeze every core for milliseconds at a time

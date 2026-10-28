@@ -16,6 +16,7 @@ pub struct HistorySample {
     pub cpu_temp: Option<f32>,
     pub cpu_load: Option<f32>,
     pub gpu_temp: Option<u32>,
+    pub gpu_load: Option<u32>,
     pub battery_pct: Option<f32>,
     pub battery_w: Option<f32>,
 }
@@ -29,6 +30,10 @@ impl From<&Telemetry> for HistorySample {
             cpu_load: t.cpu.load_pct,
             gpu_temp: match t.gpu {
                 GpuSnapshot::Active { temp_c, .. } => Some(temp_c),
+                _ => None,
+            },
+            gpu_load: match t.gpu {
+                GpuSnapshot::Active { load_pct, .. } => Some(load_pct),
                 _ => None,
             },
             battery_pct: battery.and_then(|b| b.percent),
@@ -131,7 +136,7 @@ mod tests {
     use crate::sensors::{BatterySnapshot, CpuSnapshot, PowerState};
 
     fn sample(ts_ms: i64) -> HistorySample {
-        HistorySample { ts_ms, cpu_temp: None, cpu_load: None, gpu_temp: None, battery_pct: None, battery_w: None }
+        HistorySample { ts_ms, cpu_temp: None, cpu_load: None, gpu_temp: None, gpu_load: None, battery_pct: None, battery_w: None }
     }
 
     #[test]
@@ -150,11 +155,12 @@ mod tests {
                 voltage_v: 12.0,
             }),
             cpu: CpuSnapshot { load_pct: Some(12.0), temp_c: Some(55.0), ..Default::default() },
-            gpu: GpuSnapshot::Active { temp_c: 60, load_pct: 3 },
+            gpu: GpuSnapshot::active(60, 3),
             fans: vec![],
             mem: None,
             dimm_c: None,
             skin_c: None,
+            drives: vec![],
             power: None,
         };
         assert_eq!(
@@ -164,13 +170,14 @@ mod tests {
                 cpu_temp: Some(55.0),
                 cpu_load: Some(12.0),
                 gpu_temp: Some(60),
+                gpu_load: Some(3),
                 battery_pct: Some(80.0),
                 battery_w: Some(-9.5),
             }
         );
         let asleep = Telemetry { gpu: GpuSnapshot::Asleep, battery: None, ..t };
         let s = HistorySample::from(&asleep);
-        assert_eq!((s.gpu_temp, s.battery_pct, s.battery_w), (None, None, None));
+        assert_eq!((s.gpu_temp, s.gpu_load, s.battery_pct, s.battery_w), (None, None, None, None));
     }
 
     #[test]

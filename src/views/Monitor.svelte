@@ -1,19 +1,13 @@
 <script lang="ts">
   import { onDestroy, onMount, untrack } from 'svelte'
+  import Icon from '../components/Icon.svelte'
   import Toasts from '../components/Toasts.svelte'
-  import { api } from '../lib/api'
-  import { groups, recordShow, track, type Extremes } from '../lib/monitor'
+  import { groups, isHot, track, type Extremes } from '../lib/monitor'
   import { live, startWindow } from '../lib/telemetry.svelte'
   import { errorText, toasts } from '../lib/toasts.svelte'
-  import type { RecordEntry, Records } from '../lib/types'
 
-  /** Records move only while something runs hot; a minute is soon enough to see it. */
-  const RECORDS_REFRESH_MS = 60_000
-
-  let records = $state<Records | null>(null)
   let extremes = $state<Extremes>({})
   let now = $state(Date.now())
-  let timer: ReturnType<typeof setInterval> | undefined
 
   const table = $derived(groups(live.telemetry, live.app, now))
 
@@ -28,42 +22,9 @@
     })
   })
 
-  const loadRecords = () =>
-    api.getRecords().then(
-      (r) => (records = r),
-      (e) => toasts.push(errorText(e)),
-    )
-
-  onMount(() => {
-    const loaded = loadRecords()
-    timer = setInterval(loadRecords, RECORDS_REFRESH_MS)
-    void startWindow((e) => toasts.push(errorText(e)), () => loaded)
-  })
-  onDestroy(() => {
-    clearInterval(timer)
-    live.stop()
-  })
-
-  const when = (r: RecordEntry) =>
-    new Date(r.atMs).toLocaleString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-    })
+  onMount(() => void startWindow((e) => toasts.push(errorText(e))))
+  onDestroy(() => live.stop())
 </script>
-
-{#snippet record(key: keyof Records | undefined)}
-  {@const r = key ? records?.[key] : null}
-  {#if key && r}
-    <td class="num" title={when(r)}>{recordShow[key](r.value)}</td>
-  {:else if key}
-    <td class="num secondary">—</td>
-  {:else}
-    <td></td>
-  {/if}
-{/snippet}
 
 <div class="monitor">
   <table>
@@ -73,33 +34,25 @@
         <th scope="col">Value</th>
         <th scope="col">Min</th>
         <th scope="col">Max</th>
-        <th scope="col">Record</th>
       </tr>
     </thead>
     {#each table as g (g.name)}
       <tbody>
         <tr class="group">
-          <th scope="rowgroup" colspan="4">{g.name}</th>
-          {@render record(g.record)}
+          <th scope="rowgroup" colspan="4"><span class="icon-cell"><Icon name={g.icon} />{g.name}</span></th>
         </tr>
         {#each g.rows as r (r.label)}
           {@const e = extremes[`${g.name}/${r.label}`]}
           <tr>
             <td>{r.label}</td>
-            <td class="num">{r.value == null ? '—' : r.show(r.value)}</td>
-            <td class="num secondary">{e ? r.show(e.min) : '—'}</td>
-            <td class="num secondary">{e ? r.show(e.max) : '—'}</td>
-            {@render record(r.record)}
+            <td class="num" class:hot={r.value != null && isHot(r, r.value)}>{r.value == null ? '—' : r.show(r.value)}</td>
+            <td class="num" class:secondary={!e || !isHot(r, e.min)} class:hot={e && isHot(r, e.min)}>{e ? r.show(e.min) : '—'}</td>
+            <td class="num" class:secondary={!e || !isHot(r, e.max)} class:hot={e && isHot(r, e.max)}>{e ? r.show(e.max) : '—'}</td>
           </tr>
         {/each}
       </tbody>
     {/each}
   </table>
-
-  <p class="note secondary">
-    Min and max are since this window opened. Records are all-time; temperatures and fans are recorded only while a
-    window is open.
-  </p>
 
   <Toasts floating />
 </div>
@@ -151,16 +104,17 @@
     text-align: left;
   }
 
-  .group td {
-    padding-top: 10px;
-  }
-
   tbody tr:not(.group):hover {
     background: var(--surface);
   }
 
-  .note {
-    margin: 12px 12px 0;
-    font-size: 12px;
+  .group .icon-cell {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .hot {
+    color: #ff99a4;
   }
 </style>

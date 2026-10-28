@@ -48,6 +48,7 @@ function appState(over: Partial<AppState> = {}): AppState {
     energySaver: false,
     matchPowerMode: false,
     updateVersion: null,
+    onBatterySince: null,
     ...over,
   }
 }
@@ -56,8 +57,8 @@ function telemetry(over: Partial<Telemetry> = {}): Telemetry {
   return {
     tsMs: 0,
     battery: null,
-    cpu: { loadPct: 7, tempC: 54, clockMhz: 1972, limitPct: null },
-    gpu: { state: 'active', tempC: 60, loadPct: 3 },
+    cpu: { loadPct: 7, tempC: 54, clockMhz: 1972, limitPct: null, coreLoads: [] },
+    gpu: { state: 'active', tempC: 60, loadPct: 3, clockMhz: null, memClockMhz: null, vramUsedMb: null, vramTotalMb: null },
     fans: [
       { name: 'CPU', rpm: 2100 },
       { name: 'GPU', rpm: 1900 },
@@ -66,6 +67,7 @@ function telemetry(over: Partial<Telemetry> = {}): Telemetry {
     dimmC: null,
     skinC: null,
     power: null,
+    drives: [],
     ...over,
   }
 }

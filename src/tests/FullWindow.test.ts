@@ -60,13 +60,14 @@ function appState(over: Partial<AppState> = {}): AppState {
 const TELEMETRY: Telemetry = {
   tsMs: 0,
   battery: null,
-  cpu: { loadPct: 7, tempC: 54, clockMhz: 1972, limitPct: null },
-  gpu: { state: 'active', tempC: 60, loadPct: 3 },
+  cpu: { loadPct: 7, tempC: 54, clockMhz: 1972, limitPct: null, coreLoads: [7, 7] },
+  gpu: { state: 'active', tempC: 60, loadPct: 3, clockMhz: 1395, memClockMhz: 5501, vramUsedMb: 512, vramTotalMb: 4096 },
   fans: [],
   mem: { usedMb: 10240, totalMb: 32768 },
   dimmC: null,
-  skinC: null,
+  skinC: 38,
   power: null,
+  drives: [{ index: 0, model: 'Samsung PM9A1', tempC: 41, activePct: 12, readBps: 0, writeBps: 0 }],
 }
 
 function route(
@@ -221,6 +222,22 @@ describe('FullWindow', () => {
     expect(invoke).toHaveBeenCalledWith('open_monitor')
   })
 
+  test('Sensors shows every temperature, a hot one in red', async () => {
+    route(appState())
+    render(FullWindow)
+    await open('Sensors')
+    const tile = (name: string) => screen.getByText(name, { selector: '.tile .name' }).closest('.tile')!
+    expect(tile('CPU').textContent).toContain('54 °C')
+    expect(tile('GPU').textContent).toContain('60 °C')
+    expect(tile('Chassis').textContent).toContain('38 °C')
+    expect(tile('Samsung PM9A1').textContent).toContain('41 °C')
+    expect(screen.getByRole('heading', { name: /^CPU temperature/ })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: /^GPU temperature/ })).toBeTruthy()
+    expect(tile('CPU').querySelector('.hot')).toBeNull()
+    live.telemetry = { ...TELEMETRY, cpu: { ...TELEMETRY.cpu, tempC: 96 } }
+    await waitFor(() => expect(tile('CPU').querySelector('.hot')?.textContent).toBe('96 °C'))
+  })
+
   test('the sensor monitor stays out of the navigation', async () => {
     route(appState())
     render(FullWindow)
@@ -273,6 +290,20 @@ describe('FullWindow', () => {
     expect(screen.queryByText(/Limited to/)).toBeNull()
     live.telemetry = { ...TELEMETRY, cpu: { ...TELEMETRY.cpu, limitPct: 72 } }
     expect(await screen.findByText('Limited to 72%')).toBeTruthy()
+  })
+
+  test('performance page shows the load of each part, and no temperature chart', async () => {
+    route(appState())
+    render(FullWindow)
+    await open('Performance')
+    const tile = (name: string) => screen.getByText(name, { selector: '.tile .name' }).closest('.tile')!
+    expect(tile('CPU').textContent).toContain('7%')
+    expect(tile('GPU').textContent).toContain('3%')
+    expect(tile('Memory').textContent).toContain('31%')
+    expect(tile('Memory').textContent).toContain('10.0 / 32.0 GB')
+    expect(tile('Samsung PM9A1').textContent).toContain('12%')
+    expect(screen.getByRole('heading', { name: /^GPU load/ })).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: /^CPU temperature/ })).toBeNull()
   })
 
   test('settings page shows the version and BIOS', async () => {

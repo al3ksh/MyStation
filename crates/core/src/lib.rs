@@ -26,4 +26,5 @@ pub mod usb;
 pub mod bluetooth;
 pub mod brand;
 pub mod migrate;
-pub mod records;
+pub mod power_source;
+pub mod counters;
