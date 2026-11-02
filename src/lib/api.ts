@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { AppState, BatteryProfile, BiosSetting, BootReport, DeviceInfo, DgpuReport, DisplayInfo, EnergyReport, GpuChoice, HealthEntry, HistorySample, Routine, RoutineOptions, SleepReport, Spec, StorageReport, Telemetry, ThermalMode, UsbReport } from './types'
+import type { AppState, BatteryProfile, BiosSetting, BootReport, DeviceInfo, DgpuReport, DisplayInfo, EnergyReport, GpuChoice, HealthEntry, HistorySample, Routine, RoutineOptions, RoutineStatus, SleepReport, Spec, StorageReport, Telemetry, ThermalMode, UsbReport } from './types'
 
 export const api = {
   getState: () => invoke<AppState>('get_state'),
@@ -19,6 +19,9 @@ export const api = {
   getRoutines: () => invoke<Routine[]>('get_routines'),
   setRoutines: (routines: Routine[]) => invoke<Routine[]>('set_routines', { routines }),
   routineOptions: () => invoke<RoutineOptions>('routine_options'),
+  routineStatus: () => invoke<RoutineStatus>('routine_status'),
+  startRoutine: (id: string) => invoke<void>('start_routine', { id }),
+  stopRoutine: (id: string) => invoke<void>('stop_routine', { id }),
   /** One cctk run; takes several seconds. */
   getBiosSettings: () => invoke<BiosSetting[]>('get_bios_settings'),
   setBiosSetting: (key: string, value: string) => invoke<void>('set_bios_setting', { key, value }),

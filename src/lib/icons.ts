@@ -45,6 +45,10 @@ export const GLYPH = {
   edit: '\uE70F',
   up: '\uE70E',
   down: '\uE70D',
+  play: '\uE768',
+  stop: '\uE71A',
+  undo: '\uE7A7',
+  forward: '\uE72A',
 } as const
 
 export type IconName = keyof typeof GLYPH

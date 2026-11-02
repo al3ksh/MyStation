@@ -160,17 +160,17 @@ export interface DeviceInfo {
   biosDate: string | null
 }
 
-export type Trigger =
+export type Condition =
   | { kind: 'power'; plugged: boolean }
-  /** Days: 0 = Monday … 6 = Sunday; time: local HH:MM. */
-  | { kind: 'time'; days: number[]; time: string }
+  /** Days: 0 = Monday … 6 = Sunday; times: local HH:MM. `until` null: at `time`; else from `time` to `until`. */
+  | { kind: 'time'; days: number[]; time: string; until: string | null }
   | { kind: 'wifi'; ssid: string; connected: boolean }
   | { kind: 'display'; connected: boolean }
   | { kind: 'bluetooth'; device: string; connected: boolean }
   | { kind: 'batteryBelow'; percent: number }
   | { kind: 'longAc'; days: number }
 
-export type TriggerKind = Trigger['kind']
+export type ConditionKind = Condition['kind']
 
 export interface Actions {
   thermal: ThermalMode | null
@@ -182,11 +182,17 @@ export interface Routine {
   id: string
   name: string
   enabled: boolean
-  trigger: Trigger
+  /** All must hold; none: started by hand. */
+  conditions: Condition[]
   actions: Actions
   notify: boolean
-  /** Put back what it changed when its trigger ends; never for a time trigger. */
+  /** Put back what it changed when it ends; never for an "At" time. */
   restore: boolean
+}
+
+export interface RoutineStatus {
+  /** Ids of the routines running now, in the order they started. */
+  running: string[]
 }
 
 export interface RoutineOptions {
