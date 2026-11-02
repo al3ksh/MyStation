@@ -74,6 +74,7 @@ describe('Routine editor', () => {
     expect(name.value).toBe('Manual routine')
     await fireEvent.click(tile('Wi-Fi'))
     expect(name.value).toBe('TOTO4')
+    expect(name.maxLength).toBe(60)
     await fireEvent.input(name, { target: { value: 'Office' } })
     await fireEvent.click(tile('Power'))
     expect(name.value).toBe('Office')

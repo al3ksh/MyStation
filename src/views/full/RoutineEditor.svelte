@@ -6,6 +6,7 @@
   import {
     CONDITION_KINDS,
     DAYS,
+    NAME_MAX,
     POWER_MODE_SHORT,
     defaultCondition,
     defaultName,
@@ -343,6 +344,7 @@
     <input
       aria-label="Name"
       class="name"
+      maxlength={NAME_MAX}
       value={shownName}
       oninput={(e) => {
         named = true

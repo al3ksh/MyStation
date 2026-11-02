@@ -64,6 +64,22 @@ describe('defaultName', () => {
     expect(defaultName(r)).toBe('Office, Plugged in')
   })
 
+  test('stays within the 60 characters a name may have', () => {
+    const r = routine({
+      conditions: [
+        { kind: 'wifi', ssid: 'OfficeNet', connected: true },
+        { kind: 'power', plugged: true },
+        { kind: 'time', days: [0, 1, 2, 3, 4], time: '09:00', until: '17:00' },
+        { kind: 'display', connected: true },
+        { kind: 'bluetooth', device: 'WH-1000XM5', connected: true },
+      ],
+    })
+    const name = defaultName(r)
+    expect(name.length).toBeLessThanOrEqual(60)
+    expect(name.startsWith('OfficeNet, Plugged in, Weekdays 09:00–17:00')).toBe(true)
+    expect(name.endsWith('…')).toBe(true)
+  })
+
   test('a routine without conditions is manual', () => {
     expect(defaultName(routine({ conditions: [] }))).toBe('Manual routine')
   })

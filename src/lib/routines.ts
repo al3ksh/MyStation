@@ -48,9 +48,14 @@ export function conditionChip(c: Condition): string {
   }
 }
 
-/** What a new routine is called until its name is typed in. */
+/** The longest name the backend takes. */
+export const NAME_MAX = 60
+
+/** What a new routine is called until its name is typed in; cut short to fit a name. */
 export function defaultName(r: Routine): string {
-  return r.conditions.length ? r.conditions.map(conditionChip).join(', ') : 'Manual routine'
+  if (!r.conditions.length) return 'Manual routine'
+  const name = r.conditions.map(conditionChip).join(', ')
+  return name.length > NAME_MAX ? `${name.slice(0, NAME_MAX - 1).trimEnd()}…` : name
 }
 
 const THERMAL_ICON: Record<ThermalMode, IconName> = {
