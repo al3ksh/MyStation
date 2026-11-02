@@ -1,8 +1,9 @@
 //! Routines: conditions and what to change when they hold, stored in config.json, and a pure engine
-//! the poller runs on every tick. Routines react only to events (plugging in, joining a Wi-Fi
-//! network, a time passing), so a manual change holds until the next event. When several
-//! routines fire at once, the one higher in the list wins each setting. A routine can restore what
-//! it changed when its trigger ends (leaving the network, unplugging the display).
+//! the poller runs on every tick. A routine runs while all its conditions hold and changes settings
+//! only when it starts, so a manual change holds until the next routine starts. An "At" time is
+//! instant; a routine with no conditions is started and stopped by hand. When several routines
+//! start at once, the one higher in the list wins each setting. A routine set to restore puts back
+//! what it changed when it ends.
 
 use std::collections::HashSet;
 use std::ops::RangeInclusive;
