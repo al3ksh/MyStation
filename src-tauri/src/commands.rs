@@ -205,17 +205,54 @@ pub fn get_routines(core: State<'_, Core>) -> Vec<Routine> {
 #[tauri::command(async)]
 pub fn set_routines(core: State<'_, Core>, routines: Vec<Routine>) -> Result<Vec<Routine>, String> {
     automation::validate(&routines)?;
-    {
+    let old = {
         let mut cfg = core.config.lock_ok();
         let mut next = cfg.clone();
         next.routines = routines.clone();
         config::save(&config_path(), &next).map_err(|e| format!("Could not save settings: {e}"))?;
-        *cfg = next;
+        std::mem::replace(&mut *cfg, next).routines
+    };
+    {
+        let mut state = core.automation.lock_ok();
+        state.rules_changed(Local::now().naive_local(), &old, &routines);
+        crate::automation::persist(&state);
     }
-    let mut state = core.automation.lock_ok();
-    state.rules_changed(Local::now().naive_local());
-    crate::automation::persist(&state);
+    // A routine saved while its conditions hold starts now, not on the next tick.
+    core.wake_poller();
     Ok(routines)
+}
+
+/// Which routines are running, in the order they started.
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RoutineStatus {
+    pub running: Vec<String>,
+}
+
+#[tauri::command]
+pub fn routine_status(core: State<'_, Core>) -> RoutineStatus {
+    RoutineStatus { running: core.automation.lock_ok().running.clone() }
+}
+
+/// ▶ on a manual routine; the engine runs it on the tick this wakes.
+#[tauri::command]
+pub fn start_routine(core: State<'_, Core>, id: String) {
+    routine_request(&core, automation::Request::Start(id));
+}
+
+/// ■ on a running routine.
+#[tauri::command]
+pub fn stop_routine(core: State<'_, Core>, id: String) {
+    routine_request(&core, automation::Request::Stop(id));
+}
+
+fn routine_request(core: &Core, request: automation::Request) {
+    {
+        let mut state = core.automation.lock_ok();
+        state.request(request);
+        crate::automation::persist(&state);
+    }
+    core.wake_poller();
 }
 
 #[derive(serde::Serialize)]

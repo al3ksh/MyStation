@@ -10,7 +10,7 @@ use mystation_core::profile::{ActiveProfile, BatteryProfile};
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_notification::NotificationExt;
 
-use crate::commands;
+use crate::commands::{self, RoutineStatus};
 use crate::platform;
 use crate::state::{Core, data_dir};
 use crate::sync::LockExt;
@@ -41,15 +41,20 @@ pub fn tick(app: &AppHandle, mut inputs: Inputs) -> bool {
         power_mode: now.power_mode,
     };
     let routines = core.config.lock_ok().routines.clone();
-    let runs = {
+    let (runs, status) = {
         let mut state = core.automation.lock_ok();
         let before = state.clone();
         let runs = evaluate(&mut state, &inputs, &routines);
         if *state != before {
             persist(&state);
         }
-        runs
+        let status = (state.running != before.running).then(|| RoutineStatus { running: state.running.clone() });
+        (runs, status)
     };
+    // Routines can end without changing anything, so the page learns it here, not from the runs.
+    if let Some(status) = status {
+        let _ = app.emit("routine-status", &status);
+    }
     if runs.is_empty() {
         return false;
     }
@@ -83,12 +88,12 @@ pub fn tick(app: &AppHandle, mut inputs: Inputs) -> bool {
                 if run.restored {
                     // Nothing put back, nothing to say.
                     if !names.is_empty() {
-                        show(&app, &r.name, &format!("{}. Restored {}.", r.trigger.describe_end(), names.join(", ")));
+                        show(&app, &r.name, &format!("Restored {}.", names.join(", ")));
                     }
+                } else if names.is_empty() {
+                    show(&app, &r.name, "Started.");
                 } else {
-                    let what =
-                        if names.is_empty() { String::new() } else { format!(" Switched to {}.", names.join(", ")) };
-                    show(&app, &r.name, &format!("{}.{what}", r.trigger.describe()));
+                    show(&app, &r.name, &format!("Switched to {}.", names.join(", ")));
                 }
             }
         }
