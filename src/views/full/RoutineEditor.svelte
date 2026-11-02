@@ -40,6 +40,16 @@
   const PROFILES = Object.keys(PROFILE_LABEL) as BatteryProfile[]
   const POWER_MODES = Object.keys(POWER_MODE_SHORT) as PowerMode[]
   const PERCENTS = [10, 15, 20, 30]
+  /** What each condition's chips are about. */
+  const CONDITION_LABEL: Record<ConditionKind, string> = {
+    wifi: 'Wi-Fi network',
+    power: 'Power source',
+    time: 'Time',
+    display: 'External display',
+    bluetooth: 'Bluetooth device',
+    batteryBelow: 'Battery below',
+    longAc: 'Plugged in without a break for',
+  }
   const AC_DAYS = [1, 3, 7, 14]
 
   // The editor works on its own copy, taken once; nothing changes until Save.
@@ -122,6 +132,7 @@
 
     {#each draft.conditions as c (c.kind)}
       <div class="condition">
+        <span class="label">{CONDITION_LABEL[c.kind]}</span>
         {#if c.kind === 'wifi'}
           <ChipGroup
             label="Wi-Fi network"
