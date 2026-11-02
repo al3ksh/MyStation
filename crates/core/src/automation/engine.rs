@@ -32,6 +32,18 @@ pub struct AutomationState {
     pub adopted: bool,
     /// Routines to mark running without changing anything, once their status is known.
     pub adopting: Vec<String>,
+    /// ▶ and ■ from the app, for the next tick.
+    pub requests: Vec<Request>,
+    /// Routines whose conditions or actions changed since the last tick.
+    pub edited: Vec<String>,
+}
+
+/// Starting or stopping a routine by hand.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "id", rename_all = "camelCase")]
+pub enum Request {
+    Start(String),
+    Stop(String),
 }
 
 /// What a restoring routine changed (`set`) and what it found there (`before`), per setting.
@@ -45,8 +57,20 @@ pub struct Active {
 
 impl AutomationState {
     /// After the routines change, only moments from now on count: editing never fires a past one.
-    pub fn rules_changed(&mut self, now: NaiveDateTime) {
+    /// A routine whose conditions or actions changed starts over on the next tick.
+    pub fn rules_changed(&mut self, now: NaiveDateTime, old: &[Routine], new: &[Routine]) {
         self.last_schedule = Some(now);
+        for r in new {
+            if old.iter().any(|o| o.id == r.id && (o.conditions != r.conditions || o.actions != r.actions))
+                && !self.edited.contains(&r.id)
+            {
+                self.edited.push(r.id.clone());
+            }
+        }
+    }
+
+    pub fn request(&mut self, request: Request) {
+        self.requests.push(request);
     }
 }
 
@@ -191,9 +215,54 @@ pub fn evaluate(state: &mut AutomationState, input: &Inputs, routines: &[Routine
     };
     let find = |id: &str| routines.iter().find(|r| r.id == id);
 
-    // Switched off, deleted or now instant: no longer running.
-    state.running.retain(|id| find(id).is_some_and(|r| r.enabled && !r.is_instant()));
+    // Ended this tick, by id: a deleted routine has no place in the list.
+    let mut ending: Vec<String> = Vec::new();
+    let mut starting = vec![false; routines.len()];
+    let stop = |running: &mut Vec<String>, ending: &mut Vec<String>, id: &str| {
+        if let Some(k) = running.iter().position(|x| x == id) {
+            running.remove(k);
+            ending.push(id.to_string());
+        }
+    };
+
+    // Switched off, deleted or now instant: it ends.
+    for id in state.running.clone() {
+        if !find(&id).is_some_and(|r| r.enabled && !r.is_instant()) {
+            stop(&mut state.running, &mut ending, &id);
+        }
+    }
     state.blocked.retain(|id| find(id).is_some_and(|r| r.enabled));
+
+    // Edited: it ends, then starts again below if it still should.
+    for id in std::mem::take(&mut state.edited) {
+        state.blocked.retain(|b| *b != id);
+        if state.running.contains(&id) {
+            stop(&mut state.running, &mut ending, &id);
+            if let Some(i) = routines.iter().position(|r| r.id == id && r.enabled && r.is_manual()) {
+                starting[i] = true;
+            }
+        }
+    }
+
+    for request in std::mem::take(&mut state.requests) {
+        match request {
+            Request::Start(id) => {
+                if let Some(i) = routines.iter().position(|r| r.id == id && r.enabled && r.is_manual())
+                    && !state.running.contains(&id)
+                {
+                    starting[i] = true;
+                }
+            }
+            Request::Stop(id) => {
+                if state.running.contains(&id) {
+                    stop(&mut state.running, &mut ending, &id);
+                    if find(&id).is_some_and(lasting) {
+                        state.blocked.push(id);
+                    }
+                }
+            }
+        }
+    }
 
     // A state from before routines ran over time marks what already holds as running, silently.
     if !state.adopted {
@@ -229,9 +298,6 @@ pub fn evaluate(state: &mut AutomationState, input: &Inputs, routines: &[Routine
         }
     }
 
-    // Ended this tick, by id: a deleted routine has no place in the list.
-    let mut ending: Vec<String> = Vec::new();
-    let mut starting = vec![false; routines.len()];
     for (i, r) in routines.iter().enumerate() {
         if !r.enabled || r.is_manual() || state.adopting.contains(&r.id) {
             continue;
@@ -245,10 +311,7 @@ pub fn evaluate(state: &mut AutomationState, input: &Inputs, routines: &[Routine
             Some(true) => starting[i] = !state.running.contains(&r.id) && !state.blocked.contains(&r.id),
             Some(false) => {
                 state.blocked.retain(|b| *b != r.id);
-                if let Some(k) = state.running.iter().position(|x| *x == r.id) {
-                    state.running.remove(k);
-                    ending.push(r.id.clone());
-                }
+                stop(&mut state.running, &mut ending, &r.id);
             }
             None => {}
         }
@@ -257,10 +320,18 @@ pub fn evaluate(state: &mut AutomationState, input: &Inputs, routines: &[Routine
     // Leaving a long stretch on AC without restoring hands the profile back to the time routines.
     let back_to_schedule = ending.iter().filter_map(|id| find(id)).any(|r| !r.restore && holds_battery_on_ac(r));
 
-    // Forget what to restore for routines switched off, deleted or no longer restoring.
+    // Forget what to restore for routines no longer restoring. One that ends this tick, deleted or
+    // switched off included, still restores.
+    let keep = |id: &String| {
+        if ending.contains(id) {
+            find(id).is_none_or(|r| r.restore)
+        } else {
+            find(id).is_some_and(|r| r.enabled && r.restore && !r.is_instant())
+        }
+    };
     let mut k = 0;
     while k < state.active.len() {
-        if find(&state.active[k].id).is_some_and(|r| r.enabled && r.restore && !r.is_instant()) {
+        if keep(&state.active[k].id) {
             k += 1;
         } else {
             release(&mut state.active, k, None);
@@ -509,7 +580,7 @@ mod tests {
     fn editing_the_routines_never_fires_a_past_time() {
         let rules = vec![routine("am", time(&[0], "08:00"), battery(BatteryProfile::Campus))];
         let mut s = AutomationState { on_ac: Some(false), last_schedule: Some(at(4, 20, 0)), ..Default::default() };
-        s.rules_changed(at(5, 10, 0));
+        s.rules_changed(at(5, 10, 0), &rules, &rules);
         assert_eq!(step(&mut s, false, at(5, 10, 1), &rules), vec![]);
     }
 
@@ -856,6 +927,8 @@ mod tests {
             blocked: vec!["dock".into()],
             adopted: true,
             adopting: vec!["bt".into()],
+            requests: vec![Request::Start("focus".into()), Request::Stop("office".into())],
+            edited: vec!["office".into()],
             active: vec![Active { id: "join".into(), before: thermal(ThermalMode::Quiet), set: thermal(ThermalMode::Cool) }],
         };
         save_state(&path, &s).unwrap();
@@ -947,5 +1020,188 @@ mod tests {
         assert_eq!(step(&mut s, true, at(5, 9, 1), &[]), vec![]);
         let rules = vec![routine("ac", power(true), thermal(ThermalMode::UltraPerformance))];
         assert_eq!(step(&mut s, true, at(5, 9, 2), &rules), vec![run("ac", vec![Change::Thermal(ThermalMode::UltraPerformance)])]);
+    }
+
+    fn manual(id: &str, actions: Actions) -> Routine {
+        Routine { conditions: vec![], ..routine(id, power(true), actions) }
+    }
+
+    fn by_hand(now: NaiveDateTime, mode: ThermalMode) -> Inputs {
+        Inputs { current: now_at(mode), ..Inputs::at(now, true) }
+    }
+
+    #[test]
+    fn requests_serialize_with_the_id() {
+        let json = serde_json::to_value(Request::Start("focus".into())).unwrap();
+        assert_eq!(json, serde_json::json!({ "kind": "start", "id": "focus" }));
+    }
+
+    #[test]
+    fn manual_routine_starts_and_stops() {
+        let rules = vec![Routine { restore: true, ..manual("focus", thermal(ThermalMode::Quiet)) }];
+        let mut s = seen(true, at(5, 9, 0));
+        assert_eq!(evaluate(&mut s, &by_hand(at(5, 9, 1), ThermalMode::Optimized), &rules), vec![]);
+        s.request(Request::Start("focus".into()));
+        assert_eq!(
+            evaluate(&mut s, &by_hand(at(5, 9, 2), ThermalMode::Optimized), &rules),
+            vec![run("focus", vec![Change::Thermal(ThermalMode::Quiet)])]
+        );
+        assert_eq!(s.running, vec!["focus".to_string()]);
+        assert_eq!(evaluate(&mut s, &by_hand(at(5, 9, 3), ThermalMode::Quiet), &rules), vec![]);
+        s.request(Request::Stop("focus".into()));
+        assert_eq!(
+            evaluate(&mut s, &by_hand(at(5, 9, 4), ThermalMode::Quiet), &rules),
+            vec![restored("focus", vec![Change::Thermal(ThermalMode::Optimized)])]
+        );
+        assert!(s.running.is_empty());
+        assert!(s.requests.is_empty());
+    }
+
+    #[test]
+    fn a_manual_routine_without_restore_just_stops() {
+        let rules = vec![manual("focus", thermal(ThermalMode::Quiet))];
+        let mut s = seen(true, at(5, 9, 0));
+        s.request(Request::Start("focus".into()));
+        assert_eq!(step(&mut s, true, at(5, 9, 1), &rules).len(), 1);
+        s.request(Request::Stop("focus".into()));
+        assert_eq!(step(&mut s, true, at(5, 9, 2), &rules), vec![]);
+        assert!(s.running.is_empty());
+    }
+
+    #[test]
+    fn start_twice_runs_once() {
+        let rules = vec![manual("focus", thermal(ThermalMode::Quiet))];
+        let mut s = seen(true, at(5, 9, 0));
+        s.request(Request::Start("focus".into()));
+        s.request(Request::Start("focus".into()));
+        assert_eq!(step(&mut s, true, at(5, 9, 1), &rules).len(), 1);
+        s.request(Request::Start("focus".into()));
+        assert_eq!(step(&mut s, true, at(5, 9, 2), &rules), vec![]);
+        assert_eq!(s.running, vec!["focus".to_string()]);
+    }
+
+    #[test]
+    fn start_ignores_automatic_switched_off_and_unknown_routines() {
+        let mut off = manual("off", thermal(ThermalMode::Cool));
+        off.enabled = false;
+        let rules = vec![routine("bat", power(false), thermal(ThermalMode::Quiet)), off];
+        let mut s = seen(true, at(5, 9, 0));
+        for id in ["bat", "off", "gone"] {
+            s.request(Request::Start(id.into()));
+        }
+        assert_eq!(step(&mut s, true, at(5, 9, 1), &rules), vec![]);
+        assert!(s.running.is_empty());
+    }
+
+    #[test]
+    fn stop_blocks_until_the_conditions_break() {
+        let rules = vec![restoring("office", wifi("Office", true), thermal(ThermalMode::UltraPerformance))];
+        let mut s = seen(true, at(5, 9, 0));
+        evaluate(&mut s, &wifi_now(at(5, 9, 0), Some("Office"), ThermalMode::Optimized), &rules);
+        s.request(Request::Stop("office".into()));
+        assert_eq!(
+            evaluate(&mut s, &wifi_now(at(5, 9, 1), Some("Office"), ThermalMode::UltraPerformance), &rules),
+            vec![restored("office", vec![Change::Thermal(ThermalMode::Optimized)])]
+        );
+        assert_eq!(s.blocked, vec!["office".to_string()]);
+        assert_eq!(evaluate(&mut s, &wifi_now(at(5, 9, 2), Some("Office"), ThermalMode::Optimized), &rules), vec![]);
+        assert_eq!(evaluate(&mut s, &wifi_now(at(5, 9, 3), Some("Home"), ThermalMode::Optimized), &rules), vec![]);
+        assert!(s.blocked.is_empty());
+        assert_eq!(
+            evaluate(&mut s, &wifi_now(at(5, 9, 4), Some("Office"), ThermalMode::Optimized), &rules),
+            vec![run("office", vec![Change::Thermal(ThermalMode::UltraPerformance)])]
+        );
+    }
+
+    #[test]
+    fn editing_a_running_routine_restarts_it() {
+        let quiet_and_efficient =
+            Actions { thermal: Some(ThermalMode::Quiet), power_mode: Some(PowerMode::BestEfficiency), ..Actions::default() };
+        let old = vec![restoring("office", wifi("Office", true), quiet_and_efficient)];
+        let mut s = seen(true, at(5, 9, 0));
+        evaluate(&mut s, &wifi_now(at(5, 9, 0), Some("Office"), ThermalMode::Optimized), &old);
+        let new = vec![restoring("office", wifi("Office", true), thermal(ThermalMode::Cool))];
+        s.rules_changed(at(5, 9, 1), &old, &new);
+        let mut tick = wifi_now(at(5, 9, 2), Some("Office"), ThermalMode::Quiet);
+        tick.current.power_mode = Some(PowerMode::BestEfficiency);
+        assert_eq!(
+            evaluate(&mut s, &tick, &new),
+            vec![
+                run("office", vec![Change::Thermal(ThermalMode::Cool)]),
+                restored("office", vec![Change::PowerMode(PowerMode::Balanced)]),
+            ]
+        );
+        assert!(s.edited.is_empty());
+        // It still puts back what was there before it first started.
+        assert_eq!(
+            evaluate(&mut s, &wifi_now(at(5, 9, 3), Some("Home"), ThermalMode::Cool), &new),
+            vec![restored("office", vec![Change::Thermal(ThermalMode::Optimized)])]
+        );
+    }
+
+    #[test]
+    fn editing_a_running_manual_routine_restarts_it() {
+        let old = vec![manual("focus", thermal(ThermalMode::Quiet))];
+        let mut s = seen(true, at(5, 9, 0));
+        s.request(Request::Start("focus".into()));
+        step(&mut s, true, at(5, 9, 1), &old);
+        let new = vec![manual("focus", thermal(ThermalMode::Cool))];
+        s.rules_changed(at(5, 9, 2), &old, &new);
+        assert_eq!(step(&mut s, true, at(5, 9, 3), &new), vec![run("focus", vec![Change::Thermal(ThermalMode::Cool)])]);
+        assert_eq!(s.running, vec!["focus".to_string()]);
+    }
+
+    #[test]
+    fn renaming_does_not_restart() {
+        let old = vec![restoring("office", wifi("Office", true), thermal(ThermalMode::Quiet))];
+        let mut s = seen(true, at(5, 9, 0));
+        evaluate(&mut s, &wifi_now(at(5, 9, 0), Some("Office"), ThermalMode::Optimized), &old);
+        let mut new = old.clone();
+        new[0].name = "Work".into();
+        new[0].notify = false;
+        s.rules_changed(at(5, 9, 1), &old, &new);
+        assert!(s.edited.is_empty());
+        assert_eq!(evaluate(&mut s, &wifi_now(at(5, 9, 2), Some("Office"), ThermalMode::Quiet), &new), vec![]);
+    }
+
+    #[test]
+    fn editing_clears_a_stop() {
+        let old = vec![routine("office", wifi("Office", true), thermal(ThermalMode::Quiet))];
+        let mut s = seen(true, at(5, 9, 0));
+        evaluate(&mut s, &on_wifi(at(5, 9, 0), Some("Office")), &old);
+        s.request(Request::Stop("office".into()));
+        evaluate(&mut s, &on_wifi(at(5, 9, 1), Some("Office")), &old);
+        let new = vec![routine("office", wifi("Office", true), thermal(ThermalMode::Cool))];
+        s.rules_changed(at(5, 9, 2), &old, &new);
+        assert_eq!(
+            evaluate(&mut s, &on_wifi(at(5, 9, 3), Some("Office")), &new),
+            vec![run("office", vec![Change::Thermal(ThermalMode::Cool)])]
+        );
+    }
+
+    #[test]
+    fn switching_off_a_running_routine_restores() {
+        let mut rules = vec![restoring("office", wifi("Office", true), thermal(ThermalMode::UltraPerformance))];
+        let mut s = seen(true, at(5, 9, 0));
+        evaluate(&mut s, &wifi_now(at(5, 9, 0), Some("Office"), ThermalMode::Optimized), &rules);
+        rules[0].enabled = false;
+        assert_eq!(
+            evaluate(&mut s, &wifi_now(at(5, 9, 1), Some("Office"), ThermalMode::UltraPerformance), &rules),
+            vec![restored("office", vec![Change::Thermal(ThermalMode::Optimized)])]
+        );
+        assert!(s.running.is_empty());
+        assert!(s.active.is_empty());
+    }
+
+    #[test]
+    fn deleting_a_running_routine_restores() {
+        let rules = vec![restoring("office", wifi("Office", true), thermal(ThermalMode::UltraPerformance))];
+        let mut s = seen(true, at(5, 9, 0));
+        evaluate(&mut s, &wifi_now(at(5, 9, 0), Some("Office"), ThermalMode::Optimized), &rules);
+        assert_eq!(
+            evaluate(&mut s, &wifi_now(at(5, 9, 1), Some("Office"), ThermalMode::UltraPerformance), &[]),
+            vec![restored("office", vec![Change::Thermal(ThermalMode::Optimized)])]
+        );
+        assert!(s.running.is_empty());
     }
 }
