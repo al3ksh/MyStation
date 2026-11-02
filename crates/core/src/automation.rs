@@ -1,4 +1,4 @@
-//! Routines: a trigger and what to change when it fires, stored in config.json, and a pure engine
+//! Routines: conditions and what to change when they hold, stored in config.json, and a pure engine
 //! the poller runs on every tick. Routines react only to events (plugging in, joining a Wi-Fi
 //! network, a time passing), so a manual change holds until the next event. When several
 //! routines fire at once, the one higher in the list wins each setting. A routine can restore what
@@ -7,76 +7,35 @@
 use std::collections::HashSet;
 use std::ops::RangeInclusive;
 
-use chrono::{Datelike, Duration, NaiveDateTime, NaiveTime};
+use chrono::{Duration, NaiveDateTime};
 use serde::{Deserialize, Serialize};
 
 use crate::dell::ThermalMode;
 use crate::power_mode::PowerMode;
 use crate::profile::BatteryProfile;
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
-pub enum Trigger {
-    Power { plugged: bool },
-    /// A moment, not a range. Days: 0 = Monday … 6 = Sunday; time: local `HH:MM`.
-    Time { days: Vec<u8>, time: String },
-    Wifi { ssid: String, connected: bool },
-    /// Any display besides the built-in one, a dock's included.
-    Display { connected: bool },
-    Bluetooth { device: String, connected: bool },
-    BatteryBelow { percent: u8 },
-    /// On AC without a break for this many days; fires once per AC period.
-    LongAc { days: u32 },
-}
+mod condition;
 
-fn parse_time(time: &str) -> Option<NaiveTime> {
-    NaiveTime::parse_from_str(time, "%H:%M").ok()
-}
+pub use condition::{Condition, Readings, all_hold};
+use condition::{last_moment, parse_time};
 
-impl Trigger {
-    /// What happened, for the notification.
-    pub fn describe(&self) -> String {
+impl Condition {
+    /// The event that ends this one, for conditions that are a pair.
+    fn opposite(&self) -> Option<Condition> {
         match self {
-            Trigger::Power { plugged: true } => "Plugged in".into(),
-            Trigger::Power { plugged: false } => "On battery".into(),
-            Trigger::Time { time, .. } => format!("It's {time}"),
-            Trigger::Wifi { ssid, connected: true } => format!("Connected to {ssid}"),
-            Trigger::Wifi { ssid, connected: false } => format!("Disconnected from {ssid}"),
-            Trigger::Display { connected: true } => "External display connected".into(),
-            Trigger::Display { connected: false } => "External display disconnected".into(),
-            Trigger::Bluetooth { device, connected: true } => format!("{device} connected"),
-            Trigger::Bluetooth { device, connected: false } => format!("{device} disconnected"),
-            Trigger::BatteryBelow { percent } => format!("Battery below {percent}%"),
-            Trigger::LongAc { days: 1 } => "Plugged in for a day".into(),
-            Trigger::LongAc { days } => format!("Plugged in for {days} days"),
-        }
-    }
-
-    /// The event that ends this one, for triggers that are a pair.
-    fn opposite(&self) -> Option<Trigger> {
-        match self {
-            Trigger::Power { plugged } => Some(Trigger::Power { plugged: !plugged }),
-            Trigger::Wifi { ssid, connected } => Some(Trigger::Wifi { ssid: ssid.clone(), connected: !connected }),
-            Trigger::Display { connected } => Some(Trigger::Display { connected: !connected }),
-            Trigger::Bluetooth { device, connected } => {
-                Some(Trigger::Bluetooth { device: device.clone(), connected: !connected })
+            Condition::Power { plugged } => Some(Condition::Power { plugged: !plugged }),
+            Condition::Wifi { ssid, connected } => Some(Condition::Wifi { ssid: ssid.clone(), connected: !connected }),
+            Condition::Display { connected } => Some(Condition::Display { connected: !connected }),
+            Condition::Bluetooth { device, connected } => {
+                Some(Condition::Bluetooth { device: device.clone(), connected: !connected })
             }
             _ => None,
         }
     }
 
     /// A time is a moment: nothing ends it, so there is nothing to restore at.
-    pub fn ends(&self) -> bool {
-        !matches!(self, Trigger::Time { .. })
-    }
-
-    /// What ended it, for the notification of a restore.
-    pub fn describe_end(&self) -> String {
-        match self {
-            Trigger::BatteryBelow { percent } => format!("Battery back to {percent}%"),
-            Trigger::LongAc { .. } => "On battery".into(),
-            t => t.opposite().unwrap_or_else(|| t.clone()).describe(),
-        }
+    fn ends(&self) -> bool {
+        !matches!(self, Condition::Time { .. })
     }
 }
 
@@ -131,24 +90,95 @@ impl Actions {
 const SLOTS: usize = 3;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", from = "RoutineFile")]
 pub struct Routine {
     /// Stable across edits and reordering; the engine remembers per-routine state by it.
     pub id: String,
     pub name: String,
     pub enabled: bool,
-    pub trigger: Trigger,
+    /// All must hold. None: a routine started by hand.
+    pub conditions: Vec<Condition>,
     pub actions: Actions,
     /// A Windows notification when it runs.
     pub notify: bool,
-    /// Put back what it changed when its trigger ends.
-    #[serde(default)]
+    /// Put back what it changed when it ends.
     pub restore: bool,
+}
+
+/// A routine as stored: before conditions, a routine had one `trigger`.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RoutineFile {
+    id: String,
+    name: String,
+    enabled: bool,
+    #[serde(default)]
+    conditions: Vec<Condition>,
+    #[serde(default)]
+    trigger: Option<Condition>,
+    actions: Actions,
+    notify: bool,
+    #[serde(default)]
+    restore: bool,
+}
+
+impl From<RoutineFile> for Routine {
+    fn from(f: RoutineFile) -> Self {
+        let conditions = if f.conditions.is_empty() { f.trigger.into_iter().collect() } else { f.conditions };
+        Routine { id: f.id, name: f.name, enabled: f.enabled, conditions, actions: f.actions, notify: f.notify, restore: f.restore }
+    }
+}
+
+impl Routine {
+    /// No conditions: it starts and stops by hand.
+    pub fn is_manual(&self) -> bool {
+        self.conditions.is_empty()
+    }
+
+    /// "At" a time: it runs at that moment and never over time.
+    pub fn is_instant(&self) -> bool {
+        self.conditions.iter().any(Condition::is_moment)
+    }
 }
 
 pub const LONG_AC_DAYS: RangeInclusive<u32> = 1..=60;
 pub const BATTERY_BELOW: RangeInclusive<u8> = 5..=95;
 const NAME_MAX: usize = 60;
+
+fn validate_condition(name: &str, c: &Condition) -> Result<(), String> {
+    match c {
+        Condition::Time { days, time, until } => {
+            if days.is_empty() || days.iter().any(|&d| d > 6) {
+                return Err(format!("Pick at least one day for {name}."));
+            }
+            let Some(start) = parse_time(time) else { return Err(format!("Invalid time: {time}.")) };
+            if let Some(until) = until {
+                let Some(end) = parse_time(until) else { return Err(format!("Invalid time: {until}.")) };
+                if end == start {
+                    return Err(format!("{name} has to end at another time than it starts."));
+                }
+            }
+        }
+        Condition::Wifi { ssid, .. } if ssid.trim().is_empty() || ssid.len() > 32 => {
+            return Err(format!("Enter the Wi-Fi network for {name}."));
+        }
+        Condition::Bluetooth { device, .. } if device.trim().is_empty() => {
+            return Err(format!("Pick the Bluetooth device for {name}."));
+        }
+        Condition::BatteryBelow { percent } if !BATTERY_BELOW.contains(percent) => {
+            return Err(format!(
+                "The battery level must be between {}% and {}%.",
+                BATTERY_BELOW.start(),
+                BATTERY_BELOW.end()
+            ));
+        }
+        Condition::LongAc { days } if !LONG_AC_DAYS.contains(days) => {
+            return Err(format!("Days on AC must be between {} and {}.", LONG_AC_DAYS.start(), LONG_AC_DAYS.end()));
+        }
+        _ => {}
+    }
+    Ok(())
+}
 
 /// Rejects routines the UI should never send; the message reaches the user as is.
 pub fn validate(routines: &[Routine]) -> Result<(), String> {
@@ -164,36 +194,16 @@ pub fn validate(routines: &[Routine]) -> Result<(), String> {
         if name.chars().count() > NAME_MAX {
             return Err(format!("Keep routine names to {NAME_MAX} characters."));
         }
-        match &r.trigger {
-            Trigger::Time { days, time } => {
-                if days.is_empty() || days.iter().any(|&d| d > 6) {
-                    return Err(format!("Pick at least one day for {name}."));
-                }
-                if parse_time(time).is_none() {
-                    return Err(format!("Invalid time: {time}."));
-                }
+        for (i, c) in r.conditions.iter().enumerate() {
+            let kind = std::mem::discriminant(c);
+            if r.conditions[..i].iter().any(|d| std::mem::discriminant(d) == kind) {
+                return Err(format!("{name} has two {} conditions.", c.label()));
             }
-            Trigger::Wifi { ssid, .. } if ssid.trim().is_empty() || ssid.len() > 32 => {
-                return Err(format!("Enter the Wi-Fi network for {name}."));
-            }
-            Trigger::Bluetooth { device, .. } if device.trim().is_empty() => {
-                return Err(format!("Pick the Bluetooth device for {name}."));
-            }
-            Trigger::BatteryBelow { percent } if !BATTERY_BELOW.contains(percent) => {
-                return Err(format!(
-                    "The battery level must be between {}% and {}%.",
-                    BATTERY_BELOW.start(),
-                    BATTERY_BELOW.end()
-                ));
-            }
-            Trigger::LongAc { days } if !LONG_AC_DAYS.contains(days) => {
-                return Err(format!(
-                    "Days on AC must be between {} and {}.",
-                    LONG_AC_DAYS.start(),
-                    LONG_AC_DAYS.end()
-                ));
-            }
-            _ => {}
+            validate_condition(name, c)?;
+        }
+        let on_battery = r.conditions.contains(&Condition::Power { plugged: false });
+        if on_battery && r.conditions.iter().any(|c| matches!(c, Condition::LongAc { .. })) {
+            return Err(format!("{name} can never run: it needs days on AC while on battery."));
         }
         if r.actions.is_empty() && !r.notify {
             return Err(format!("{name} doesn't change anything."));
@@ -271,11 +281,11 @@ fn profile_label(profile: BatteryProfile) -> &'static str {
 
 /// The old rules as routines, in the order that keeps their priorities: long AC beat the schedule.
 pub fn migrate(old: &Automation) -> Vec<Routine> {
-    let routine = |id: String, name: String, enabled: bool, trigger: Trigger, actions: Actions| Routine {
+    let routine = |id: String, name: String, enabled: bool, condition: Condition, actions: Actions| Routine {
         id,
         name,
         enabled,
-        trigger,
+        conditions: vec![condition],
         actions,
         notify: old.notify,
         restore: false,
@@ -286,20 +296,20 @@ pub fn migrate(old: &Automation) -> Vec<Routine> {
     {
         if let Some(mode) = mode {
             let actions = Actions { thermal: Some(mode), ..Actions::default() };
-            out.push(routine(id.into(), name.into(), old.thermal.enabled, Trigger::Power { plugged }, actions));
+            out.push(routine(id.into(), name.into(), old.thermal.enabled, Condition::Power { plugged }, actions));
         }
     }
     if old.long_ac.enabled {
         let days = old.long_ac.days;
         let actions = Actions { battery: Some(old.long_ac.profile), ..Actions::default() };
-        let trigger = Trigger::LongAc { days };
-        out.push(routine("long-ac".into(), trigger.describe(), true, trigger, actions));
+        let name = if days == 1 { "Plugged in for a day".into() } else { format!("Plugged in for {days} days") };
+        out.push(routine("long-ac".into(), name, true, Condition::LongAc { days }, actions));
     }
     for (i, e) in old.schedule.entries.iter().enumerate() {
         let name = format!("{} at {}", profile_label(e.profile), e.time);
         let actions = Actions { battery: Some(e.profile), ..Actions::default() };
-        let trigger = Trigger::Time { days: e.days.clone(), time: e.time.clone() };
-        out.push(routine(format!("schedule-{i}"), name, old.schedule.enabled, trigger, actions));
+        let time = Condition::Time { days: e.days.clone(), time: e.time.clone(), until: None };
+        out.push(routine(format!("schedule-{i}"), name, old.schedule.enabled, time, actions));
     }
     out
 }
@@ -443,17 +453,14 @@ fn remember(active: &mut Vec<Active>, id: &str, changes: &[Change], now: &Action
     }
 }
 
-/// The latest moment a time trigger passed at or before `now`, looking back a week.
-fn last_moment(days: &[u8], time: &str, now: NaiveDateTime) -> Option<NaiveDateTime> {
-    let time = parse_time(time)?;
-    (0..=7)
-        .map(|back| (now.date() - Duration::days(back)).and_time(time))
-        .find(|m| *m <= now && days.contains(&(m.weekday().num_days_from_monday() as u8)))
+/// The engine below still reads one condition per routine.
+fn trigger(r: &Routine) -> Option<&Condition> {
+    r.conditions.first()
 }
 
 fn time_moment(r: &Routine, now: NaiveDateTime) -> Option<NaiveDateTime> {
-    match &r.trigger {
-        Trigger::Time { days, time } if r.enabled => last_moment(days, time, now),
+    match trigger(r) {
+        Some(Condition::Time { days, time, .. }) if r.enabled => last_moment(days, time, now),
         _ => None,
     }
 }
@@ -463,12 +470,12 @@ pub fn evaluate(state: &mut AutomationState, input: &Inputs, routines: &[Routine
     let now = input.now;
     let mut fired = vec![false; routines.len()];
     let mut ended = vec![false; routines.len()];
-    let fire = |fired: &mut Vec<bool>, ended: &mut Vec<bool>, pred: &dyn Fn(&Trigger) -> bool| {
+    let fire = |fired: &mut Vec<bool>, ended: &mut Vec<bool>, pred: &dyn Fn(&Condition) -> bool| {
         for (i, r) in routines.iter().enumerate() {
-            if r.enabled && pred(&r.trigger) {
+            if r.enabled && trigger(r).is_some_and(pred) {
                 fired[i] = true;
             }
-            if r.trigger.opposite().is_some_and(|t| pred(&t)) {
+            if trigger(r).and_then(Condition::opposite).is_some_and(|t| pred(&t)) {
                 ended[i] = true;
             }
         }
@@ -478,7 +485,7 @@ pub fn evaluate(state: &mut AutomationState, input: &Inputs, routines: &[Routine
     if state.on_ac != Some(input.on_ac) {
         // The first reading ever has nothing to compare with: not an event.
         if state.on_ac.is_some() {
-            fire(&mut fired, &mut ended, &|t| *t == Trigger::Power { plugged: input.on_ac });
+            fire(&mut fired, &mut ended, &|t| *t == Condition::Power { plugged: input.on_ac });
         }
         state.on_ac = Some(input.on_ac);
         if input.on_ac {
@@ -489,7 +496,7 @@ pub fn evaluate(state: &mut AutomationState, input: &Inputs, routines: &[Routine
             back_to_schedule =
                 state.long_ac_done.iter().any(|id| routines.iter().any(|r| r.id == *id && !r.restore));
             for (i, r) in routines.iter().enumerate() {
-                if matches!(r.trigger, Trigger::LongAc { .. }) {
+                if matches!(trigger(r), Some(Condition::LongAc { .. })) {
                     ended[i] = true;
                 }
             }
@@ -502,7 +509,7 @@ pub fn evaluate(state: &mut AutomationState, input: &Inputs, routines: &[Routine
         && let Some(since) = state.ac_since
     {
         for (i, r) in routines.iter().enumerate() {
-            if let Trigger::LongAc { days } = r.trigger
+            if let Some(&Condition::LongAc { days }) = trigger(r)
                 && r.enabled
                 && !state.long_ac_done.contains(&r.id)
                 && now - since >= Duration::days(days.into())
@@ -535,8 +542,8 @@ pub fn evaluate(state: &mut AutomationState, input: &Inputs, routines: &[Routine
         if state.wifi_seen && state.ssid != *ssid {
             let before = state.ssid.clone();
             fire(&mut fired, &mut ended, &|t| match t {
-                Trigger::Wifi { ssid: s, connected: true } => ssid.as_ref() == Some(s) && before.as_ref() != Some(s),
-                Trigger::Wifi { ssid: s, connected: false } => before.as_ref() == Some(s) && ssid.as_ref() != Some(s),
+                Condition::Wifi { ssid: s, connected: true } => ssid.as_ref() == Some(s) && before.as_ref() != Some(s),
+                Condition::Wifi { ssid: s, connected: false } => before.as_ref() == Some(s) && ssid.as_ref() != Some(s),
                 _ => false,
             });
         }
@@ -548,7 +555,7 @@ pub fn evaluate(state: &mut AutomationState, input: &Inputs, routines: &[Routine
         if let Some(before) = state.displays
             && (before == 0) != (n == 0)
         {
-            fire(&mut fired, &mut ended, &|t| *t == Trigger::Display { connected: n > 0 });
+            fire(&mut fired, &mut ended, &|t| *t == Condition::Display { connected: n > 0 });
         }
         state.displays = Some(n);
     }
@@ -556,8 +563,8 @@ pub fn evaluate(state: &mut AutomationState, input: &Inputs, routines: &[Routine
     if let Some(names) = &input.bluetooth {
         if let Some(before) = &state.bluetooth {
             fire(&mut fired, &mut ended, &|t| match t {
-                Trigger::Bluetooth { device, connected: true } => names.contains(device) && !before.contains(device),
-                Trigger::Bluetooth { device, connected: false } => before.contains(device) && !names.contains(device),
+                Condition::Bluetooth { device, connected: true } => names.contains(device) && !before.contains(device),
+                Condition::Bluetooth { device, connected: false } => before.contains(device) && !names.contains(device),
                 _ => false,
             });
         }
@@ -568,9 +575,9 @@ pub fn evaluate(state: &mut AutomationState, input: &Inputs, routines: &[Routine
         // Whole percents: the file changes once per percent, not on every reading.
         let pct = pct.clamp(0.0, 100.0) as u8;
         if let Some(before) = state.battery_pct {
-            fire(&mut fired, &mut ended, &|t| matches!(t, Trigger::BatteryBelow { percent } if before >= *percent && pct < *percent));
+            fire(&mut fired, &mut ended, &|t| matches!(t, Condition::BatteryBelow { percent } if before >= *percent && pct < *percent));
             for (i, r) in routines.iter().enumerate() {
-                if let Trigger::BatteryBelow { percent } = r.trigger
+                if let Some(&Condition::BatteryBelow { percent }) = trigger(r)
                     && before < percent
                     && pct >= percent
                 {
@@ -585,7 +592,7 @@ pub fn evaluate(state: &mut AutomationState, input: &Inputs, routines: &[Routine
     let mut k = 0;
     while k < state.active.len() {
         let id = &state.active[k].id;
-        if routines.iter().any(|r| r.id == *id && r.enabled && r.restore && r.trigger.ends()) {
+        if routines.iter().any(|r| r.id == *id && r.enabled && r.restore && trigger(r).is_some_and(Condition::ends)) {
             k += 1;
         } else {
             release(&mut state.active, k, None);
@@ -615,12 +622,12 @@ pub fn evaluate(state: &mut AutomationState, input: &Inputs, routines: &[Routine
     let mut claimed = [false; SLOTS];
     let mut runs = Vec::new();
     for (r, _) in routines.iter().zip(&fired).filter(|(_, f)| **f) {
-        let held = hold && matches!(r.trigger, Trigger::Time { .. });
+        let held = hold && matches!(trigger(r), Some(Condition::Time { .. }));
         let changes: Vec<Change> = (0..SLOTS)
             .filter_map(|slot| r.actions.get(slot))
             .filter(|c| !(held && c.slot() == 1) && !std::mem::replace(&mut claimed[c.slot()], true))
             .collect();
-        if r.restore && r.trigger.ends() {
+        if r.restore && trigger(r).is_some_and(Condition::ends) {
             remember(&mut state.active, &r.id, &changes, &pending.or(&input.current));
         }
         runs.push(Run { id: r.id.clone(), changes, restored: false });
@@ -660,11 +667,11 @@ mod tests {
         NaiveDate::from_ymd_opt(2026, 10, day).unwrap().and_hms_opt(h, m, 0).unwrap()
     }
 
-    fn routine(id: &str, trigger: Trigger, actions: Actions) -> Routine {
-        Routine { id: id.into(), name: id.into(), enabled: true, trigger, actions, notify: true, restore: false }
+    fn routine(id: &str, trigger: Condition, actions: Actions) -> Routine {
+        Routine { id: id.into(), name: id.into(), enabled: true, conditions: vec![trigger], actions, notify: true, restore: false }
     }
 
-    fn restoring(id: &str, trigger: Trigger, actions: Actions) -> Routine {
+    fn restoring(id: &str, trigger: Condition, actions: Actions) -> Routine {
         Routine { restore: true, ..routine(id, trigger, actions) }
     }
 
@@ -676,12 +683,12 @@ mod tests {
         Actions { battery: Some(profile), ..Actions::default() }
     }
 
-    fn power(plugged: bool) -> Trigger {
-        Trigger::Power { plugged }
+    fn power(plugged: bool) -> Condition {
+        Condition::Power { plugged }
     }
 
-    fn time(days: &[u8], t: &str) -> Trigger {
-        Trigger::Time { days: days.to_vec(), time: t.into() }
+    fn time(days: &[u8], t: &str) -> Condition {
+        Condition::Time { days: days.to_vec(), time: t.into(), until: None }
     }
 
     const EVERY_DAY: &[u8] = &[0, 1, 2, 3, 4, 5, 6];
@@ -818,7 +825,7 @@ mod tests {
     }
 
     fn long_ac(days: u32) -> Routine {
-        routine("long", Trigger::LongAc { days }, battery(BatteryProfile::Storage))
+        routine("long", Condition::LongAc { days }, battery(BatteryProfile::Storage))
     }
 
     #[test]
@@ -871,8 +878,8 @@ mod tests {
         assert_eq!(step(&mut s, true, at(8, 10, 0), &rules), vec![]);
     }
 
-    fn wifi(ssid: &str, connected: bool) -> Trigger {
-        Trigger::Wifi { ssid: ssid.into(), connected }
+    fn wifi(ssid: &str, connected: bool) -> Condition {
+        Condition::Wifi { ssid: ssid.into(), connected }
     }
 
     fn on_wifi(now: NaiveDateTime, ssid: Option<&str>) -> Inputs {
@@ -911,8 +918,8 @@ mod tests {
     #[test]
     fn display_routines_run_on_the_first_and_last_external_display() {
         let rules = vec![
-            routine("dock", Trigger::Display { connected: true }, thermal(ThermalMode::UltraPerformance)),
-            routine("undock", Trigger::Display { connected: false }, thermal(ThermalMode::Optimized)),
+            routine("dock", Condition::Display { connected: true }, thermal(ThermalMode::UltraPerformance)),
+            routine("undock", Condition::Display { connected: false }, thermal(ThermalMode::Optimized)),
         ];
         let displays = |now, n| Inputs { displays: Some(n), ..Inputs::at(now, true) };
         let mut s = seen(true, at(5, 9, 0));
@@ -924,7 +931,7 @@ mod tests {
 
     #[test]
     fn bluetooth_routines_follow_one_device() {
-        let device = |connected| Trigger::Bluetooth { device: "WH-1000XM5".into(), connected };
+        let device = |connected| Condition::Bluetooth { device: "WH-1000XM5".into(), connected };
         let rules = vec![
             routine("on", device(true), thermal(ThermalMode::Quiet)),
             routine("off", device(false), thermal(ThermalMode::Optimized)),
@@ -942,7 +949,7 @@ mod tests {
 
     #[test]
     fn battery_below_runs_when_the_level_drops_past_it() {
-        let rules = vec![routine("low", Trigger::BatteryBelow { percent: 20 }, thermal(ThermalMode::Quiet))];
+        let rules = vec![routine("low", Condition::BatteryBelow { percent: 20 }, thermal(ThermalMode::Quiet))];
         let pct = |now, p| Inputs { battery_pct: Some(p), ..Inputs::at(now, false) };
         let mut s = seen(false, at(5, 9, 0));
         assert_eq!(evaluate(&mut s, &pct(at(5, 9, 0), 21.0), &rules), vec![]);
@@ -1019,7 +1026,7 @@ mod tests {
     fn overlapping() -> Vec<Routine> {
         vec![
             restoring("office", wifi("Office", true), thermal(ThermalMode::UltraPerformance)),
-            restoring("dock", Trigger::Display { connected: true }, thermal(ThermalMode::Cool)),
+            restoring("dock", Condition::Display { connected: true }, thermal(ThermalMode::Cool)),
         ]
     }
 
@@ -1080,7 +1087,7 @@ mod tests {
 
     #[test]
     fn battery_below_ends_when_the_level_is_back() {
-        let rules = vec![restoring("low", Trigger::BatteryBelow { percent: 20 }, thermal(ThermalMode::Quiet))];
+        let rules = vec![restoring("low", Condition::BatteryBelow { percent: 20 }, thermal(ThermalMode::Quiet))];
         let pct = |now, p, mode| Inputs { battery_pct: Some(p), current: now_at(mode), ..Inputs::at(now, false) };
         let mut s = seen(false, at(5, 9, 0));
         evaluate(&mut s, &pct(at(5, 9, 0), 21.0, ThermalMode::Optimized), &rules);
@@ -1143,14 +1150,6 @@ mod tests {
     }
 
     #[test]
-    fn a_trigger_describes_its_end() {
-        assert_eq!(wifi("Office", true).describe_end(), "Disconnected from Office");
-        assert_eq!(power(false).describe_end(), "Plugged in");
-        assert_eq!(Trigger::BatteryBelow { percent: 20 }.describe_end(), "Battery back to 20%");
-        assert_eq!(Trigger::LongAc { days: 3 }.describe_end(), "On battery");
-    }
-
-    #[test]
     fn state_survives_a_restart() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("automation-state.json");
@@ -1189,18 +1188,27 @@ mod tests {
             f(&mut r);
             validate(&[r]).is_err()
         };
-        assert!(bad(&|r| r.trigger = time(&[], "08:00")));
-        assert!(bad(&|r| r.trigger = time(&[7], "08:00")));
-        assert!(bad(&|r| r.trigger = time(&[0], "8am")));
+        assert!(bad(&|r| r.conditions = vec![time(&[], "08:00")]));
+        assert!(bad(&|r| r.conditions = vec![time(&[7], "08:00")]));
+        assert!(bad(&|r| r.conditions = vec![time(&[0], "8am")]));
         assert!(bad(&|r| r.name = "  ".into()));
-        assert!(bad(&|r| r.trigger = wifi(" ", true)));
-        assert!(bad(&|r| r.trigger = Trigger::Bluetooth { device: String::new(), connected: true }));
-        assert!(bad(&|r| r.trigger = Trigger::BatteryBelow { percent: 2 }));
-        assert!(bad(&|r| r.trigger = Trigger::LongAc { days: 0 }));
+        assert!(bad(&|r| r.conditions = vec![wifi(" ", true)]));
+        assert!(bad(&|r| r.conditions = vec![Condition::Bluetooth { device: String::new(), connected: true }]));
+        assert!(bad(&|r| r.conditions = vec![Condition::BatteryBelow { percent: 2 }]));
+        assert!(bad(&|r| r.conditions = vec![Condition::LongAc { days: 0 }]));
         assert!(bad(&|r| {
             r.actions = Actions::default();
             r.notify = false;
         }));
+        let between = |until: &str| Condition::Time { days: vec![0], time: "08:00".into(), until: Some(until.into()) };
+        assert!(!bad(&|r| r.conditions = vec![between("09:00")]));
+        assert!(bad(&|r| r.conditions = vec![between("08:00")]));
+        assert!(bad(&|r| r.conditions = vec![between("25:00")]));
+        assert!(bad(&|r| r.conditions = vec![wifi("Office", true), wifi("Home", true)]));
+        assert!(bad(&|r| r.conditions = vec![power(false), Condition::LongAc { days: 3 }]));
+        assert!(!bad(&|r| r.conditions = vec![power(true), wifi("Office", true)]));
+        // Started by hand: no conditions.
+        assert!(!bad(&|r| r.conditions = vec![]));
         assert!(validate(&[ok.clone(), ok]).is_err());
     }
 
@@ -1208,15 +1216,24 @@ mod tests {
     fn routines_serialize_for_the_ui() {
         let r = routine("w", wifi("Office", true), Actions { power_mode: Some(PowerMode::Balanced), ..Actions::default() });
         let json = serde_json::to_value(&r).unwrap();
-        assert_eq!(json["trigger"], serde_json::json!({ "kind": "wifi", "ssid": "Office", "connected": true }));
+        assert_eq!(json["conditions"][0], serde_json::json!({ "kind": "wifi", "ssid": "Office", "connected": true }));
+        assert!(json.get("trigger").is_none());
         assert_eq!(json["actions"]["powerMode"], "Balanced");
         assert_eq!(json["actions"]["thermal"], serde_json::Value::Null);
         assert_eq!(json["restore"], false);
         let mut old = json.clone();
         old.as_object_mut().unwrap().remove("restore");
         assert_eq!(serde_json::from_value::<Routine>(old).unwrap(), r);
-        let below = serde_json::to_value(Trigger::BatteryBelow { percent: 20 }).unwrap();
-        assert_eq!(below, serde_json::json!({ "kind": "batteryBelow", "percent": 20 }));
+    }
+
+    #[test]
+    fn legacy_trigger_reads_as_one_condition() {
+        let old = r#"{"id":"a","name":"A","enabled":true,"trigger":{"kind":"time","days":[0],"time":"08:00"},"actions":{},"notify":false}"#;
+        let r: Routine = serde_json::from_str(old).unwrap();
+        assert_eq!(r.conditions, vec![time(&[0], "08:00")]);
+        assert!(!r.restore);
+        assert!(r.is_instant());
+        assert!(!r.is_manual());
     }
 
     #[test]
@@ -1238,7 +1255,7 @@ mod tests {
                     id: "plugged-in".into(),
                     name: "Plugged in".into(),
                     enabled: true,
-                    trigger: power(true),
+                    conditions: vec![power(true)],
                     actions: thermal(ThermalMode::UltraPerformance),
                     notify: false,
                     restore: false,
@@ -1247,7 +1264,7 @@ mod tests {
                     id: "long-ac".into(),
                     name: "Plugged in for 5 days".into(),
                     enabled: true,
-                    trigger: Trigger::LongAc { days: 5 },
+                    conditions: vec![Condition::LongAc { days: 5 }],
                     actions: battery(BatteryProfile::Storage),
                     notify: false,
                     restore: false,
@@ -1256,7 +1273,7 @@ mod tests {
                     id: "schedule-0".into(),
                     name: "Remote at 08:00".into(),
                     enabled: false,
-                    trigger: time(&[0, 1], "08:00"),
+                    conditions: vec![time(&[0, 1], "08:00")],
                     actions: battery(BatteryProfile::Campus),
                     notify: false,
                     restore: false,
