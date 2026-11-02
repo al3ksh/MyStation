@@ -4,6 +4,23 @@ Each release's section becomes its GitHub Release notes and the notes the
 in-app updater shows. `npm run release` refuses to publish a version that has
 no section here.
 
+## Unreleased
+
+- Routines work like Samsung's: a routine can wait for several conditions at
+  once (say, the office Wi-Fi and plugged in) and runs while they all hold.
+  With "Undo when it ends" it puts the settings back once one stops holding.
+  A time can be a stretch ("Between 09:00 and 17:00") as well as a moment
+  ("At 08:00").
+- A routine without conditions starts by hand: Start runs it, Stop ends it.
+  A running routine shows "Running" with a Stop button; a stopped one waits
+  until its conditions stop holding and come back. Switching off or deleting
+  a running routine puts back what it changed.
+- Automation shows each routine as a card with its conditions and what it
+  changes, and edits it on one page of tiles and chips. Existing routines
+  carry over as they are.
+- Fixed: CPU temperature, memory, chassis and fan readings disappeared while
+  the fans were stopped.
+
 ## 0.8.0 — 2026-10-28
 
 - Performance shows the CPU's actual clock next to its load, and "Limited to

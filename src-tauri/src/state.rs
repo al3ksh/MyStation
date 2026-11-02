@@ -59,6 +59,14 @@ pub enum PollMode {
     Idle,
 }
 
+/// What the poller thread is told: a new pace, or to tick now (a routine was started, stopped or
+/// edited).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PollMsg {
+    Mode(PollMode),
+    Wake,
+}
+
 pub struct Core {
     pub cctk: Option<Cctk<ExeCctkRunner>>,
     pub config: Mutex<Config>,
@@ -70,7 +78,7 @@ pub struct Core {
     pub automation: Mutex<AutomationState>,
     /// Last measured battery draw per USB device ID, for this session.
     pub usb_draw: Mutex<HashMap<String, f32>>,
-    poller_tx: Sender<PollMode>,
+    poller_tx: Sender<PollMsg>,
 }
 
 /// `%APPDATA%\MyPrecision`: the pre-rebrand name, kept so existing settings and history carry over.
@@ -95,7 +103,7 @@ impl Core {
         show
     }
 
-    pub fn new() -> (Self, Receiver<PollMode>) {
+    pub fn new() -> (Self, Receiver<PollMsg>) {
         let (poller_tx, rx) = channel();
         let config = config::load(&config_path());
         let cctk = ExeCctkRunner::locate().map(Cctk::new);
@@ -137,7 +145,12 @@ impl Core {
 
     pub fn set_poll_mode(&self, m: PollMode) {
         // The poller only stops with the app; a send error then is harmless.
-        let _ = self.poller_tx.send(m);
+        let _ = self.poller_tx.send(PollMsg::Mode(m));
+    }
+
+    /// An extra tick now, so a change to the routines acts at once rather than on the next tick.
+    pub fn wake_poller(&self) {
+        let _ = self.poller_tx.send(PollMsg::Wake);
     }
 
     pub fn state(&self) -> AppState {

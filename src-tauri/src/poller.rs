@@ -23,7 +23,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_notification::NotificationExt;
 
 use crate::platform::{self, CountersReader, CpuPerfReader, CpuPowerReader, GpuReader, WmiReaders};
-use crate::state::{Core, PollMode};
+use crate::state::{Core, PollMode, PollMsg};
 use crate::sync::LockExt;
 
 const ACTIVE_INTERVAL: Duration = Duration::from_secs(1);
@@ -33,7 +33,7 @@ const LOAD_BASELINE: Duration = Duration::from_millis(250);
 /// Drive names and SMART temperatures change slowly; each read opens every drive.
 const DRIVE_INFO_INTERVAL: Duration = Duration::from_secs(10);
 
-pub fn spawn(app: AppHandle, rx: Receiver<PollMode>) {
+pub fn spawn(app: AppHandle, rx: Receiver<PollMsg>) {
     std::thread::Builder::new()
         .name("poller".into())
         .spawn(move || Poller::new(app).run(rx))
@@ -104,13 +104,14 @@ impl Poller {
         }
     }
 
-    fn run(mut self, rx: Receiver<PollMode>) {
+    fn run(mut self, rx: Receiver<PollMsg>) {
         let mut mode = PollMode::Idle;
         loop {
             self.tick(mode);
             let interval = if mode == PollMode::Active { ACTIVE_INTERVAL } else { IDLE_INTERVAL };
             match rx.recv_timeout(interval) {
-                Ok(next) => {
+                Ok(PollMsg::Wake) => {}
+                Ok(PollMsg::Mode(next)) => {
                     if next == PollMode::Idle {
                         self.gpu.release();
                         self.power_window = PowerWindow::default();

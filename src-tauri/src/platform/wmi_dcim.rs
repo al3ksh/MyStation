@@ -7,7 +7,8 @@ use super::WmiReaders;
 #[serde(rename_all = "PascalCase")]
 struct NumericSensor {
     element_name: String,
-    current_reading: i64,
+    /// NULL for a stopped fan; one NULL must not fail the whole query.
+    current_reading: Option<i64>,
 }
 
 #[derive(Deserialize)]
