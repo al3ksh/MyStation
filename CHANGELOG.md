@@ -4,7 +4,7 @@ Each release's section becomes its GitHub Release notes and the notes the
 in-app updater shows. `npm run release` refuses to publish a version that has
 no section here.
 
-## Unreleased
+## 0.9.0 — 2026-11-02
 
 - Routines work like Samsung's: a routine can wait for several conditions at
   once (say, the office Wi-Fi and plugged in) and runs while they all hold.
