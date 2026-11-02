@@ -7,7 +7,8 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "camelCase")]
 pub struct DcimRow {
     pub element_name: String,
-    pub current_reading: i64,
+    /// `None` when the firmware leaves the reading blank (a stopped fan does).
+    pub current_reading: Option<i64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -46,9 +47,12 @@ pub fn parse_dcim(rows: &[DcimRow]) -> DcimReadings {
                 "SKIN" => &mut out.skin_c,
                 _ => continue,
             };
-            *slot = max_temp(*slot, row.current_reading);
+            let Some(reading) = row.current_reading else { continue };
+            *slot = max_temp(*slot, reading);
         } else if let Some(fan) = name.strip_prefix("Fan Speed Sensor:") {
-            if row.current_reading < 0 {
+            // A stopped fan reads blank rather than 0.
+            let reading = row.current_reading.unwrap_or(0);
+            if reading < 0 {
                 continue;
             }
             let name = match fan.trim() {
@@ -56,7 +60,7 @@ pub fn parse_dcim(rows: &[DcimRow]) -> DcimReadings {
                 "Video Fan" => "GPU",
                 other => other,
             };
-            out.fans.push(FanReading { name: name.into(), rpm: row.current_reading.min(u32::MAX as i64) as u32 });
+            out.fans.push(FanReading { name: name.into(), rpm: reading.min(u32::MAX as i64) as u32 });
         }
     }
     out
@@ -67,7 +71,11 @@ mod tests {
     use super::*;
 
     fn row(name: &str, v: i64) -> DcimRow {
-        DcimRow { element_name: name.into(), current_reading: v }
+        DcimRow { element_name: name.into(), current_reading: Some(v) }
+    }
+
+    fn blank(name: &str) -> DcimRow {
+        DcimRow { element_name: name.into(), current_reading: None }
     }
 
     #[test]
@@ -111,6 +119,24 @@ mod tests {
     fn dcim_stopped_fan_reports_zero() {
         let r = parse_dcim(&[row("Fan Speed Sensor:Processor Fan", 0)]);
         assert_eq!(r.fans, vec![FanReading { name: "CPU".into(), rpm: 0 }]);
+    }
+
+    #[test]
+    fn dcim_blank_fan_is_stopped() {
+        let r = parse_dcim(&[blank("Fan Speed Sensor:Processor Fan")]);
+        assert_eq!(r.fans, vec![FanReading { name: "CPU".into(), rpm: 0 }]);
+    }
+
+    #[test]
+    fn dcim_blank_reading_keeps_other_sensors() {
+        let r = parse_dcim(&[
+            row("Temperature Sensor:CPU", 53),
+            blank("Fan Speed Sensor:Video Fan"),
+            blank("Temperature Sensor:SKIN"),
+        ]);
+        assert_eq!(r.cpu_c, Some(53.0));
+        assert_eq!(r.skin_c, None);
+        assert_eq!(r.fans, vec![FanReading { name: "GPU".into(), rpm: 0 }]);
     }
 
     #[test]
